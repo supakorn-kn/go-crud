@@ -49,12 +49,3 @@ func New(uri string, dbName string) MongoDBConn {
 		databaseName: dbName,
 	}
 }
-
-func InitConnection(uri string, dbName string) (*MongoDBConn, error) {
-	mongodbConn := New(uri, dbName)
-	if err := mongodbConn.Connect(); err != nil {
-		return nil, err
-	}
-
-	return &mongodbConn, nil
-}
