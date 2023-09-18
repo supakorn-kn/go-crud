@@ -8,7 +8,9 @@ import (
 )
 
 type MongoDBConn struct {
-	Client *mongo.Client
+	databaseName string
+
+	client *mongo.Client
 	opts   *options.ClientOptions
 }
 
@@ -19,35 +21,31 @@ func (db *MongoDBConn) Connect() error {
 		return err
 	}
 
-	db.Client = client
+	db.client = client
 
 	return nil
 }
 
 func (db *MongoDBConn) Disconnect() error {
-	return db.Client.Disconnect(context.TODO())
+	return db.client.Disconnect(context.TODO())
 }
 
-func (db *MongoDBConn) GetCollection(databaseName, collectionName string) *mongo.Collection {
-
-	return db.Client.Database(databaseName).Collection(collectionName)
+func (db *MongoDBConn) GetDatabase() *mongo.Database {
+	return db.client.Database(db.databaseName)
 }
 
-func New(uri string) MongoDBConn {
+func (db *MongoDBConn) GetCollection(collectionName string) *mongo.Collection {
+
+	return db.GetDatabase().Collection(collectionName)
+}
+
+func New(uri string, dbName string) MongoDBConn {
 
 	serverAPI := options.ServerAPI(options.ServerAPIVersion1)
 	opts := options.Client().ApplyURI(uri).SetServerAPIOptions(serverAPI)
 
 	return MongoDBConn{
-		opts: opts,
+		opts:         opts,
+		databaseName: dbName,
 	}
-}
-
-func InitConnection(uri string) (*MongoDBConn, error) {
-	mongodbConn := New(uri)
-	if err := mongodbConn.Connect(); err != nil {
-		return nil, err
-	}
-
-	return &mongodbConn, nil
 }
