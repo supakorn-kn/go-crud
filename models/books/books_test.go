@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"github.com/supakorn-kn/go-crud/models"
 	"github.com/supakorn-kn/go-crud/mongodb"
+	"github.com/supakorn-kn/go-crud/objects"
 	"go.mongodb.org/mongo-driver/bson"
 )
 
@@ -18,7 +19,7 @@ type BooksModelTestSuite struct {
 	suite.Suite
 	conn       *mongodb.MongoDBConn
 	booksModel *BooksModel
-	book       Book
+	book       objects.Book
 }
 
 func (s *BooksModelTestSuite) SetupSuite() {
@@ -52,12 +53,12 @@ func (s *BooksModelTestSuite) BeforeTest(suiteName, testName string) {
 
 func (s *BooksModelTestSuite) AfterTest(suiteName, testName string) {
 
-	_, err := s.booksModel.coll.DeleteMany(context.TODO(), bson.D{})
+	_, err := s.booksModel.coll.DeleteMany(context.Background(), bson.D{})
 	s.Require().NoError(err)
 }
 
 func (s *BooksModelTestSuite) TearDownSuite() {
-	s.conn.GetDatabase().Drop(context.TODO())
+	s.conn.GetDatabase().Drop(context.Background())
 	s.conn.Disconnect()
 }
 
@@ -68,9 +69,9 @@ func (s *BooksModelTestSuite) TestInsert() {
 		err := s.booksModel.Insert(s.book)
 		s.Require().NoError(err, "Inserting Book failed")
 
-		result := s.booksModel.coll.FindOne(context.TODO(), bson.D{{Key: "book_id", Value: s.book.BookID}})
+		result := s.booksModel.coll.FindOne(context.Background(), bson.D{{Key: "book_id", Value: s.book.BookID}})
 
-		var actual Book
+		var actual objects.Book
 		s.Require().NoError(result.Decode(&actual), "Reading inserted Book failed")
 		s.Require().EqualValues(s.book, actual, "Read Data is not the same as inserted")
 	})
@@ -134,21 +135,21 @@ func (s *BooksModelTestSuite) TestGetByID() {
 
 func (s *BooksModelTestSuite) TestSearch() {
 
-	bookA := Book{
+	bookA := objects.Book{
 		BookID:      "book_0",
 		Title:       "Title A",
 		Author:      "Author A",
 		Description: "First book",
 		Categories:  []string{"Category A"},
 	}
-	bookB := Book{
+	bookB := objects.Book{
 		BookID:      "book_1",
 		Title:       "Title B",
 		Author:      "Author A",
 		Description: "book_0 author",
 		Categories:  []string{"Category B"},
 	}
-	bookC := Book{
+	bookC := objects.Book{
 		BookID:      "book_3",
 		Title:       "Title A",
 		Author:      "Author B",
@@ -162,8 +163,9 @@ func (s *BooksModelTestSuite) TestSearch() {
 		s.booksModel.limit = initialLimit
 	})
 
-	sortedBooks := []Book{bookA, bookB, bookC}
-	shuffledBooks := slices.Clone[[]Book, Book](sortedBooks)
+	sortedBooks := []objects.Book{bookA, bookC, bookB}
+
+	shuffledBooks := slices.Clone[[]objects.Book, objects.Book](sortedBooks)
 	gofakeit.ShuffleAnySlice(shuffledBooks)
 
 	for _, book := range shuffledBooks {
@@ -173,11 +175,11 @@ func (s *BooksModelTestSuite) TestSearch() {
 	s.Run("Should get book properly by given options", func() {
 
 		var testCases = map[string]struct {
-			Expected models.PaginationData[Book]
+			Expected models.PaginationData[objects.Book]
 			Option   SearchOption
 		}{
 			"None (Page 1)": {
-				Expected: models.PaginationData[Book]{
+				Expected: models.PaginationData[objects.Book]{
 					Page:       1,
 					TotalPages: 2,
 					Data:       sortedBooks[:2],
@@ -187,7 +189,7 @@ func (s *BooksModelTestSuite) TestSearch() {
 				},
 			},
 			"None (Page 2)": {
-				Expected: models.PaginationData[Book]{
+				Expected: models.PaginationData[objects.Book]{
 					Page:       2,
 					TotalPages: 2,
 					Data:       sortedBooks[2:],
@@ -197,10 +199,10 @@ func (s *BooksModelTestSuite) TestSearch() {
 				},
 			},
 			"Title (Equal)": {
-				Expected: models.PaginationData[Book]{
+				Expected: models.PaginationData[objects.Book]{
 					Page:       1,
 					TotalPages: 1,
-					Data:       []Book{bookA, bookC},
+					Data:       []objects.Book{bookA, bookC},
 				},
 				Option: SearchOption{
 					CurrentPage: 1,
@@ -211,10 +213,10 @@ func (s *BooksModelTestSuite) TestSearch() {
 				},
 			},
 			"Title (Partial)": {
-				Expected: models.PaginationData[Book]{
+				Expected: models.PaginationData[objects.Book]{
 					Page:       1,
 					TotalPages: 1,
-					Data:       []Book{bookB},
+					Data:       []objects.Book{bookB},
 				},
 				Option: SearchOption{
 					CurrentPage: 1,
@@ -225,7 +227,7 @@ func (s *BooksModelTestSuite) TestSearch() {
 				},
 			},
 			"Title (Start with)": {
-				Expected: models.PaginationData[Book]{
+				Expected: models.PaginationData[objects.Book]{
 					Page:       1,
 					TotalPages: 2,
 					Data:       sortedBooks[0:2],
@@ -239,10 +241,10 @@ func (s *BooksModelTestSuite) TestSearch() {
 				},
 			},
 			"Title (End with)": {
-				Expected: models.PaginationData[Book]{
+				Expected: models.PaginationData[objects.Book]{
 					Page:       1,
 					TotalPages: 1,
-					Data:       []Book{bookA, bookC},
+					Data:       []objects.Book{bookA, bookC},
 				},
 				Option: SearchOption{
 					CurrentPage: 1,
@@ -337,13 +339,13 @@ func TestBooksModel(t *testing.T) {
 	suite.Run(t, new(BooksModelTestSuite))
 }
 
-func fakeBook() Book {
+func fakeBook() objects.Book {
 
 	fakeInfo := gofakeit.Book()
 
 	now := time.Now()
 
-	return Book{
+	return objects.Book{
 		BookID:      "book_" + fmt.Sprintf("%d", now.UnixNano()),
 		Title:       fakeInfo.Title,
 		Author:      fakeInfo.Author,
