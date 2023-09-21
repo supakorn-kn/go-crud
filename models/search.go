@@ -13,12 +13,6 @@ type AggregatedResult[T any] struct {
 	Data  []T `bson:"data"`
 }
 
-type PaginationData[T any] struct {
-	Page       int `json:"page"`
-	TotalPages int `json:"total_pages"`
-	Data       []T `json:"data"`
-}
-
 type MatchType int64
 
 const (
@@ -29,8 +23,8 @@ const (
 )
 
 type MatchOption struct {
-	MatchType MatchType
-	Value     string
+	MatchType MatchType `json:"match_type"`
+	Value     string    `json:"value"`
 }
 
 func (opt MatchOption) IsNil() bool {
