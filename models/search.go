@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/supakorn-kn/go-crud/errors"
 	"go.mongodb.org/mongo-driver/bson"
 )
 
@@ -13,13 +14,7 @@ type AggregatedResult[T any] struct {
 	Data  []T `bson:"data"`
 }
 
-type PaginationData[T any] struct {
-	Page       int `json:"page"`
-	TotalPages int `json:"total_pages"`
-	Data       []T `json:"data"`
-}
-
-type MatchType int64
+type MatchType uint8
 
 const (
 	EqualMatchType = iota
@@ -29,8 +24,8 @@ const (
 )
 
 type MatchOption struct {
-	MatchType MatchType
-	Value     string
+	MatchType MatchType `json:"match_type"`
+	Value     string    `json:"value"`
 }
 
 func (opt MatchOption) IsNil() bool {
@@ -55,7 +50,7 @@ func CreateMatchBson(key string, value any, matchType MatchType) (bson.D, error)
 		return EndWithMatchBson(key, value), nil
 
 	default:
-		return nil, fmt.Errorf("invalid or unsupported match type %d in author option", matchType)
+		return nil, errors.MatchTypeInvalidError.New(matchType)
 	}
 }
 
