@@ -2,8 +2,14 @@ package apis
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/supakorn-kn/go-crud/errors"
 	"github.com/supakorn-kn/go-crud/models"
 )
+
+type CRUDResponse struct {
+	Result any              `json:"result,omitempty"`
+	Error  errors.BaseError `json:"error,omitempty"`
+}
 
 type CrudAPI[Item any] interface {
 	Insert(ctx *gin.Context) error
@@ -13,4 +19,4 @@ type CrudAPI[Item any] interface {
 	Delete(ctx *gin.Context) error
 }
 
-var OKResponse = map[string]string{"status": "OK"}
+var OKResponse = CRUDResponse{Result: map[string]any{"status": "OK"}}

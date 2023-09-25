@@ -4,63 +4,96 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/supakorn-kn/go-crud/errors"
 )
 
-func RegisterCrudAPI[Item any](pathName string, api CrudAPI[Item], g *gin.Engine) {
+const (
+	responseContextKey = "response"
+)
 
-	g.POST(pathName, func(ctx *gin.Context) {
+func RegisterCrudAPI[Item any](api CrudAPI[Item], group *gin.RouterGroup) {
+
+	group.Use(func(ctx *gin.Context) {
+
+		ctx.Next()
+	})
+
+	group.POST("", func(ctx *gin.Context) {
 
 		err := api.Insert(ctx)
 		if err != nil {
-			ctx.JSON(http.StatusBadRequest, err)
+			writeErrorJSON(ctx, err)
 			return
 		}
 
 		ctx.JSON(http.StatusCreated, OKResponse)
 	})
 
-	g.GET(pathName+"/:id", func(ctx *gin.Context) {
+	group.GET(":id", func(ctx *gin.Context) {
 
 		itemID := ctx.Param("id")
+
 		item, err := api.ReadOne(itemID, ctx)
 		if err != nil {
-			ctx.JSON(http.StatusBadRequest, err)
+			writeErrorJSON(ctx, err)
 			return
 		}
 
-		ctx.JSON(http.StatusOK, item)
+		ctx.JSON(http.StatusOK, CRUDResponse{Result: item})
 	})
 
-	g.GET(pathName, func(ctx *gin.Context) {
+	group.GET("", func(ctx *gin.Context) {
 
 		paginateResult, err := api.Read(ctx)
+
 		if err != nil {
-			ctx.JSON(http.StatusBadRequest, err)
+			writeErrorJSON(ctx, err)
 			return
 		}
 
-		ctx.JSON(http.StatusOK, paginateResult)
+		ctx.JSON(http.StatusOK, CRUDResponse{Result: paginateResult})
 	})
 
-	g.PUT(pathName, func(ctx *gin.Context) {
+	group.PUT("", func(ctx *gin.Context) {
 
 		err := api.Update(ctx)
 		if err != nil {
-			ctx.JSON(http.StatusBadRequest, err)
+			writeErrorJSON(ctx, err)
 			return
 		}
 
-		ctx.JSON(http.StatusOK, OKResponse)
+		ctx.JSON(http.StatusNoContent, nil)
 	})
 
-	g.DELETE(pathName, func(ctx *gin.Context) {
+	group.DELETE("", func(ctx *gin.Context) {
 
 		err := api.Delete(ctx)
 		if err != nil {
-			ctx.JSON(http.StatusBadRequest, err)
+			writeErrorJSON(ctx, err)
 			return
 		}
 
-		ctx.JSON(http.StatusOK, OKResponse)
+		ctx.JSON(http.StatusNoContent, nil)
 	})
+}
+
+func writeErrorJSON(ctx *gin.Context, err error) {
+
+	assertedError, ok := errors.TryAssertError(err)
+	if !ok {
+		ctx.JSON(http.StatusInternalServerError, CRUDResponse{Error: errors.UnknownError.New(err)})
+		return
+	}
+
+	var statusCode int
+	var errorResponse = CRUDResponse{Error: assertedError}
+
+	switch assertedError.Code {
+	case errors.ObjectIDNotFoundErrorCode:
+		statusCode = http.StatusNotFound
+	default:
+		statusCode = http.StatusBadRequest
+	}
+
+	ctx.JSON(statusCode, errorResponse)
 }

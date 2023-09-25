@@ -33,7 +33,8 @@ func main() {
 	}
 
 	g := gin.Default()
-	apis.RegisterCrudAPI[objects.Book]("api/books", newbooksAPI, g)
+	group := g.Group("api/books")
+	apis.RegisterCrudAPI[objects.Book](newbooksAPI, group)
 
 	//TODO: Will set addr parameter from env
 	if err := g.Run(); err != nil {

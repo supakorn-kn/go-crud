@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/supakorn-kn/go-crud/errors"
 	"go.mongodb.org/mongo-driver/bson"
 )
 
@@ -13,7 +14,7 @@ type AggregatedResult[T any] struct {
 	Data  []T `bson:"data"`
 }
 
-type MatchType int64
+type MatchType uint8
 
 const (
 	EqualMatchType = iota
@@ -49,7 +50,7 @@ func CreateMatchBson(key string, value any, matchType MatchType) (bson.D, error)
 		return EndWithMatchBson(key, value), nil
 
 	default:
-		return nil, fmt.Errorf("invalid or unsupported match type %d in author option", matchType)
+		return nil, errors.MatchTypeInvalidError.New(matchType)
 	}
 }
 

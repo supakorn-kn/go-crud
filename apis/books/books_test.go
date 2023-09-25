@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/suite"
 	"github.com/supakorn-kn/go-crud/apis"
+	"github.com/supakorn-kn/go-crud/errors"
 	"github.com/supakorn-kn/go-crud/models"
 	"github.com/supakorn-kn/go-crud/models/books"
 	"github.com/supakorn-kn/go-crud/mongodb"
@@ -48,7 +50,7 @@ func (s *BooksAPISuite) SetupSuite() {
 	gin.SetMode(gin.TestMode)
 
 	g := gin.Default()
-	apis.RegisterCrudAPI[objects.Book]("api/books", api, g)
+	apis.RegisterCrudAPI[objects.Book](api, g.Group("api/books"))
 
 	s.g = g
 }
@@ -102,9 +104,10 @@ func (s *BooksAPISuite) TestCreate() {
 		recorder := createBookStatements(book)
 		s.Require().Equal(http.StatusCreated, recorder.Code)
 
-		var result map[string]string
-		s.Require().NoError(json.Unmarshal(recorder.Body.Bytes(), &result))
-		s.Require().EqualValues(apis.OKResponse, result)
+		var resp apis.CRUDResponse
+		s.Require().NoError(json.Unmarshal(recorder.Body.Bytes(), &resp))
+		s.Require().Empty(resp.Error)
+		s.Require().Equal(apis.OKResponse, resp)
 	})
 
 	s.Run("Should throw error when create book using existed book_id", func() {
@@ -112,7 +115,10 @@ func (s *BooksAPISuite) TestCreate() {
 		recorder := createBookStatements(book)
 		s.Require().Equal(http.StatusBadRequest, recorder.Code)
 
-		//TODO: Assert error content
+		var resp apis.CRUDResponse
+		s.Require().NoError(json.Unmarshal(recorder.Body.Bytes(), &resp))
+		s.Require().Empty(resp.Result)
+		s.Require().True(errors.IsError(resp.Error, errors.DuplicatedObjectIDError.New(book.BookID)))
 	})
 }
 
@@ -140,15 +146,19 @@ func (s *BooksAPISuite) TestRead() {
 		req.Header.Set("Content-Type", "application/json")
 
 		s.g.ServeHTTP(recorder, req)
+		s.Require().Equal(http.StatusOK, recorder.Code)
 
-		var expected = models.PaginationData[objects.Book]{
-			Page:       1,
-			TotalPages: 1,
-			Data:       []objects.Book{s.createdBook},
-		}
-		var result models.PaginationData[objects.Book]
-		s.Require().NoError(json.Unmarshal(recorder.Body.Bytes(), &result))
-		s.Require().EqualValues(expected, result)
+		var expected, _ = json.Marshal(apis.CRUDResponse{
+			Result: models.PaginationData[objects.Book]{
+				Page:       1,
+				TotalPages: 1,
+				Data:       []objects.Book{s.createdBook},
+			},
+		})
+
+		var resp apis.CRUDResponse
+		s.Require().Empty(resp.Error)
+		s.Require().JSONEq(string(expected), recorder.Body.String())
 	})
 
 	s.Run("Should throw error when user does not give search option", func() {
@@ -160,7 +170,35 @@ func (s *BooksAPISuite) TestRead() {
 		s.g.ServeHTTP(recorder, req)
 		s.Require().Equal(http.StatusBadRequest, recorder.Code)
 
-		//TODO: Assert error content
+		var resp apis.CRUDResponse
+		s.Require().NoError(json.Unmarshal(recorder.Body.Bytes(), &resp))
+		s.Require().Empty(resp.Result)
+		slog.Info(resp.Error.Error())
+	})
+
+	s.Run("Should throw error when user give impossible match type value (out of uint8 range)", func() {
+
+		searchOption := map[string]any{
+			"current_page": 1,
+			"title": map[string]any{
+				"match_type": -1,
+				"value":      s.createdBook.Title,
+			},
+		}
+		b, err := json.Marshal(searchOption)
+		s.Require().NoError(err)
+
+		recorder := httptest.NewRecorder()
+		req, _ := http.NewRequest(http.MethodGet, "/api/books", bytes.NewBuffer(b))
+		req.Header.Set("Content-Type", "application/json")
+
+		s.g.ServeHTTP(recorder, req)
+		s.Require().Equal(http.StatusBadRequest, recorder.Code)
+
+		var resp apis.CRUDResponse
+		s.Require().NoError(json.Unmarshal(recorder.Body.Bytes(), &resp))
+		s.Require().Empty(resp.Result)
+		slog.Info(resp.Error.Error())
 	})
 
 	s.Run("Should throw error when user does not fill current page (current page = 0) in search option", func() {
@@ -176,7 +214,10 @@ func (s *BooksAPISuite) TestRead() {
 		s.g.ServeHTTP(recorder, req)
 		s.Require().Equal(http.StatusBadRequest, recorder.Code)
 
-		//TODO: Assert error content
+		var resp apis.CRUDResponse
+		s.Require().NoError(json.Unmarshal(recorder.Body.Bytes(), &resp))
+		s.Require().Empty(resp.Result)
+		s.Require().True(errors.IsError(resp.Error, errors.CurrentPageInvalidError.New()))
 	})
 }
 
@@ -189,22 +230,30 @@ func (s *BooksAPISuite) TestReadOne() {
 		req.Header.Set("Content-Type", "application/json")
 
 		s.g.ServeHTTP(recorder, req)
+		s.Require().Equal(http.StatusOK, recorder.Code)
 
-		var result objects.Book
-		s.Require().NoError(json.Unmarshal(recorder.Body.Bytes(), &result))
-		s.Require().EqualValues(s.createdBook, result)
+		var expected, _ = json.Marshal(apis.CRUDResponse{Result: s.createdBook})
+
+		var resp apis.CRUDResponse
+		s.Require().Empty(resp.Error)
+		s.Require().JSONEq(string(expected), recorder.Body.String())
 	})
 
 	s.Run("Should throw error when user give invalid book ID", func() {
 
+		itemID := "invalid_id"
+
 		recorder := httptest.NewRecorder()
-		req, _ := http.NewRequest(http.MethodGet, "/api/books/invalid_id", nil)
+		req, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("/api/books/%s", itemID), nil)
 		req.Header.Set("Content-Type", "application/json")
 
 		s.g.ServeHTTP(recorder, req)
-		s.Require().Equal(http.StatusBadRequest, recorder.Code)
+		s.Require().Equal(http.StatusNotFound, recorder.Code)
 
-		//TODO: Assert error content
+		var resp apis.CRUDResponse
+		s.Require().NoError(json.Unmarshal(recorder.Body.Bytes(), &resp))
+		s.Require().Empty(resp.Result)
+		s.Require().True(errors.IsError(resp.Error, errors.ObjectIDNotFoundError.New(itemID)))
 	})
 }
 
@@ -223,11 +272,8 @@ func (s *BooksAPISuite) TestUpdate() {
 		req.Header.Set("Content-Type", "application/json")
 
 		s.g.ServeHTTP(recorder, req)
-		s.Require().Equal(http.StatusOK, recorder.Code)
-
-		var result map[string]string
-		s.Require().NoError(json.Unmarshal(recorder.Body.Bytes(), &result))
-		s.Require().EqualValues(apis.OKResponse, result)
+		s.Require().Equal(http.StatusNoContent, recorder.Code)
+		s.Require().Empty(recorder.Body.Bytes())
 	})
 
 	s.Run("Should throw error when user give invalid book ID", func() {
@@ -242,9 +288,12 @@ func (s *BooksAPISuite) TestUpdate() {
 		req.Header.Set("Content-Type", "application/json")
 
 		s.g.ServeHTTP(recorder, req)
-		s.Require().Equal(http.StatusBadRequest, recorder.Code)
+		s.Require().Equal(http.StatusNotFound, recorder.Code)
 
-		//TODO: Assert error content
+		var resp apis.CRUDResponse
+		s.Require().NoError(json.Unmarshal(recorder.Body.Bytes(), &resp))
+		s.Require().Empty(resp.Result)
+		s.Require().True(errors.IsError(resp.Error, errors.ObjectIDNotFoundError.New(book.BookID)))
 	})
 }
 
@@ -260,13 +309,8 @@ func (s *BooksAPISuite) TestDelete() {
 		req.Header.Set("Content-Type", "application/json")
 
 		s.g.ServeHTTP(recorder, req)
-		s.Require().Equal(http.StatusOK, recorder.Code)
-
-		var result map[string]string
-		s.Require().NoError(json.Unmarshal(recorder.Body.Bytes(), &result))
-		s.Require().EqualValues(apis.OKResponse, result)
-
-		//TODO: Assert getting book by id should throw error
+		s.Require().Equal(http.StatusNoContent, recorder.Code)
+		s.Require().Empty(recorder.Body.Bytes())
 	})
 
 	s.Run("Should throw error when user give invalid book ID", func() {
@@ -281,9 +325,12 @@ func (s *BooksAPISuite) TestDelete() {
 		req.Header.Set("Content-Type", "application/json")
 
 		s.g.ServeHTTP(recorder, req)
-		s.Require().Equal(http.StatusBadRequest, recorder.Code)
+		s.Require().Equal(http.StatusNotFound, recorder.Code)
 
-		//TODO: Assert error content
+		var resp apis.CRUDResponse
+		s.Require().NoError(json.Unmarshal(recorder.Body.Bytes(), &resp))
+		s.Require().Empty(resp.Result)
+		s.Require().True(errors.IsError(resp.Error, errors.ObjectIDNotFoundError.New(book.BookID)))
 	})
 }
 

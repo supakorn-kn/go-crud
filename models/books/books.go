@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/supakorn-kn/go-crud/errors"
 	"github.com/supakorn-kn/go-crud/models"
 	"github.com/supakorn-kn/go-crud/mongodb"
 	"github.com/supakorn-kn/go-crud/objects"
@@ -222,6 +223,12 @@ func (m BooksModel) initIndexes(conn *mongodb.MongoDBConn) error {
 func (m BooksModel) Insert(book objects.Book) error {
 
 	_, err := m.coll.InsertOne(context.Background(), book, &options.InsertOneOptions{})
+
+	switch true {
+	case mongo.IsDuplicateKeyError(err):
+		return errors.DuplicatedObjectIDError.New(book.BookID)
+	}
+
 	return err
 }
 
@@ -231,13 +238,23 @@ func (m BooksModel) GetByID(bookID string) (objects.Book, error) {
 
 	var book objects.Book
 	err := result.Decode(&book)
+	if err == nil {
+		return book, nil
+	}
+
+	switch err {
+
+	case mongo.ErrNoDocuments:
+		err = errors.ObjectIDNotFoundError.New(bookID)
+	}
+
 	return book, err
 }
 
 func (m BooksModel) Search(opt SearchOption) (b models.PaginationData[objects.Book], paginateErr error) {
 
 	if opt.CurrentPage < 1 {
-		paginateErr = fmt.Errorf("current page can be only positive integer")
+		paginateErr = errors.CurrentPageInvalidError.New()
 		return
 	}
 
@@ -360,7 +377,15 @@ func (m BooksModel) Update(book objects.Book) error {
 	//TODO: Research to choose update or replace
 	result := m.coll.FindOneAndReplace(context.Background(), filter, book)
 	if err := result.Err(); err != nil {
-		return err
+
+		switch err {
+
+		case mongo.ErrNoDocuments:
+			return errors.ObjectIDNotFoundError.New(book.BookID)
+
+		default:
+			return err
+		}
 	}
 
 	return nil
@@ -373,7 +398,15 @@ func (m BooksModel) Delete(bookID string) error {
 	option := options.FindOneAndDelete()
 	result := m.coll.FindOneAndDelete(context.Background(), filter, option)
 	if err := result.Err(); err != nil {
-		return err
+
+		switch err {
+
+		case mongo.ErrNoDocuments:
+			return errors.ObjectIDNotFoundError.New(bookID)
+
+		default:
+			return err
+		}
 	}
 
 	return nil
