@@ -17,10 +17,10 @@ type AggregatedResult[T any] struct {
 type MatchType uint8
 
 const (
-	EqualMatchType = iota
-	PartialMatchType
-	StartWithMatchType
-	EndWithMatchType
+	EqualMatchType     = 0
+	PartialMatchType   = 1
+	StartWithMatchType = 2
+	EndWithMatchType   = 3
 )
 
 type MatchOption struct {
@@ -32,7 +32,6 @@ func (opt MatchOption) IsNil() bool {
 	return reflect.ValueOf(opt).IsZero()
 }
 
-// TODO: Will change value type
 func CreateMatchBson(key string, value any, matchType MatchType) (bson.D, error) {
 
 	switch matchType {
@@ -55,26 +54,22 @@ func CreateMatchBson(key string, value any, matchType MatchType) (bson.D, error)
 }
 
 // EqualMatchBson creates BSON for equal search (Case-sensitive)
-// TODO: Will change value type
 func EqualMatchBson(key string, value any) bson.D {
 	return bson.D{{Key: key, Value: value}}
 }
 
 // PartialMatchBson creates BSON for partial search (Case-insensitive)
-// TODO: Will change value type
 func PartialMatchBson(key string, value any) bson.D {
 	return bson.D{{Key: key, Value: bson.M{"$regex": value, "$options": "i"}}}
 }
 
 // StartWithMatchBson creates BSON for start with keyword search (Case-insensitive)
-// TODO: Will change value type
 func StartWithMatchBson(key string, value any) bson.D {
 	format := fmt.Sprintf("^%s", value)
 	return bson.D{{Key: key, Value: bson.M{"$regex": format, "$options": "im"}}}
 }
 
 // EndWithMatchBson creates BSON for end with keyword search (Case-insensitive)
-// TODO: Will change value type
 func EndWithMatchBson(key string, value any) bson.D {
 	format := fmt.Sprintf("%s$", value)
 	return bson.D{{Key: key, Value: bson.M{"$regex": format, "$options": "im"}}}

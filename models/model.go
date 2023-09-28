@@ -1,6 +1,8 @@
 package models
 
-type Model[Item any] interface {
+type Model[T Item] interface {
+	BaseModel[Item]
+
 	GetCollectionName() string
 	Insert(item Item) error
 	GetByID(itemID string) (Item, error)

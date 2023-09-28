@@ -53,11 +53,12 @@ func (s *BooksModelTestSuite) BeforeTest(suiteName, testName string) {
 
 func (s *BooksModelTestSuite) AfterTest(suiteName, testName string) {
 
-	_, err := s.booksModel.coll.DeleteMany(context.Background(), bson.D{})
+	_, err := s.booksModel.Coll.DeleteMany(context.Background(), bson.D{})
 	s.Require().NoError(err)
 }
 
 func (s *BooksModelTestSuite) TearDownSuite() {
+
 	s.conn.GetDatabase().Drop(context.Background())
 	s.conn.Disconnect()
 }
@@ -71,7 +72,7 @@ func (s *BooksModelTestSuite) TestInsert() {
 		err := s.booksModel.Insert(book)
 		s.Require().NoError(err, "Inserting Book failed")
 
-		result := s.booksModel.coll.FindOne(context.Background(), bson.D{{Key: "book_id", Value: book.BookID}})
+		result := s.booksModel.Coll.FindOne(context.Background(), bson.D{{Key: "book_id", Value: book.BookID}})
 
 		var actual objects.Book
 		s.Require().NoError(result.Decode(&actual), "Reading inserted Book failed")
@@ -124,7 +125,7 @@ func (s *BooksModelTestSuite) TestInsert() {
 
 		s.Run("Use nil categories", func() {
 
-			invalidBook := book
+			invalidBook := fakeBook()
 			invalidBook.Categories = nil
 
 			err := s.booksModel.Insert(invalidBook)
@@ -176,10 +177,10 @@ func (s *BooksModelTestSuite) TestSearch() {
 		Categories:  []string{"Category A", "Category B"},
 	}
 
-	var initialLimit = s.booksModel.limit
-	s.booksModel.limit = 2
+	var initialLimit = s.booksModel.SearchLenLimit
+	s.booksModel.SearchLenLimit = 2
 	s.T().Cleanup(func() {
-		s.booksModel.limit = initialLimit
+		s.booksModel.SearchLenLimit = initialLimit
 	})
 
 	sortedBooks := []objects.Book{bookA, bookC, bookB}

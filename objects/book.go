@@ -10,6 +10,10 @@ type Book struct {
 	Categories  []string `json:"categories" bson:"categories"`
 }
 
-func (b *Book) IsNil() bool {
+func (b Book) GetID() string {
+	return b.BookID
+}
+
+func (b Book) IsNil() bool {
 	return reflect.ValueOf(b).IsZero()
 }
