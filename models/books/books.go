@@ -2,10 +2,9 @@ package books
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"slices"
 
-	"github.com/supakorn-kn/go-crud/errors"
 	"github.com/supakorn-kn/go-crud/models"
 	"github.com/supakorn-kn/go-crud/mongodb"
 	"github.com/supakorn-kn/go-crud/objects"
@@ -32,7 +31,7 @@ func NewBooksModel(conn *mongodb.MongoDBConn, paginateSize ...int) (*BooksModel,
 
 	paginateSizeLen := len(paginateSize)
 	if paginateSizeLen > 1 {
-		return nil, fmt.Errorf("PaginateSize can have only one elements")
+		return nil, errors.New("PaginateSize can have only one elements")
 	} else if paginateSizeLen == 1 {
 		searchSize = paginateSize[0]
 	}
@@ -64,24 +63,22 @@ func (m *BooksModel) init(conn *mongodb.MongoDBConn, paginateSize int) error {
 
 	coll := conn.GetDatabase().Collection(m.GetCollectionName())
 
-	baseModel, err := models.NewBaseModel[objects.Book](coll, paginateSize, "book_id")
+	err = m.BaseModel.Inject(coll, paginateSize, "book_id")
 	if err != nil {
 		return err
 	}
-
-	m.BaseModel = *baseModel
 
 	return nil
 }
 
 func (m BooksModel) initCollection(conn *mongodb.MongoDBConn) error {
 
-	bookDB := conn.GetDatabase()
+	crudDB := conn.GetDatabase()
 	collectionName := m.GetCollectionName()
 
 	filter := bson.D{}
 	option := options.ListCollections()
-	collectionNameList, err := bookDB.ListCollectionNames(context.Background(), filter, option)
+	collectionNameList, err := crudDB.ListCollectionNames(context.Background(), filter, option)
 	if err != nil {
 		return err
 	}
@@ -124,13 +121,13 @@ func (m BooksModel) initCollection(conn *mongodb.MongoDBConn) error {
 	if slices.Contains(collectionNameList, collectionName) {
 
 		cmd := bson.D{
-			{Key: "collMod", Value: "books_info"},
+			{Key: "collMod", Value: collectionName},
 			{Key: "validator", Value: validator},
 			{Key: "validationLevel", Value: "strict"},
 		}
 
 		option := options.RunCmd()
-		result := bookDB.RunCommand(context.Background(), cmd, option)
+		result := crudDB.RunCommand(context.Background(), cmd, option)
 		if err := result.Err(); err != nil {
 			return err
 		}
@@ -142,7 +139,7 @@ func (m BooksModel) initCollection(conn *mongodb.MongoDBConn) error {
 	collectionOption.SetValidator(validator)
 	collectionOption.SetValidationLevel("strict")
 
-	err = bookDB.CreateCollection(context.Background(), collectionName, collectionOption)
+	err = crudDB.CreateCollection(context.Background(), collectionName, collectionOption)
 	if err != nil {
 		return err
 	}
@@ -156,7 +153,7 @@ func (m BooksModel) initIndexes(conn *mongodb.MongoDBConn) error {
 	coll := conn.GetDatabase().Collection(collectionName)
 	cur, err := coll.Indexes().List(context.Background())
 	if err != nil {
-		return nil
+		return err
 	}
 
 	var titleAndAuthorIndexName = "title_1_author_1"
@@ -221,88 +218,53 @@ func (m BooksModel) initIndexes(conn *mongodb.MongoDBConn) error {
 
 func (m BooksModel) Search(opt SearchOption) (paginationData models.PaginationData[objects.Book], paginationErr error) {
 
-	if opt.CurrentPage < 1 {
-		paginationErr = errors.CurrentPageInvalidError.New()
+	paginationErr = nil
+
+	var builder = models.NewSearchPipelineBuilder()
+	paginationErr = builder.SortedBy([]models.SortData{
+		{
+			Key:    "title",
+			SortBy: models.SortASC,
+		},
+		{
+			Key:    "author",
+			SortBy: models.SortASC,
+		},
+	})
+	if paginationErr != nil {
 		return
 	}
 
-	matchConditions := bson.A{}
+	builder.Skip((opt.CurrentPage - 1) * m.BaseModel.SearchLenLimit)
+	builder.Limit(m.BaseModel.SearchLenLimit)
+
 	if !opt.Title.IsNil() {
 
-		matchBson, err := models.CreateMatchBson("title", opt.Title.Value, opt.Title.MatchType)
-		if err != nil {
-			paginationErr = err
+		paginationErr = builder.Match("title", opt.Title.Value, opt.Title.MatchType)
+		if paginationErr != nil {
 			return
 		}
-
-		matchConditions = append(matchConditions, matchBson)
 	}
 
 	if !opt.Author.IsNil() {
 
-		matchBson, err := models.CreateMatchBson("author", opt.Author.Value, opt.Author.MatchType)
-		if err != nil {
-			paginationErr = err
+		paginationErr = builder.Match("author", opt.Author.Value, opt.Author.MatchType)
+		if paginationErr != nil {
 			return
 		}
-
-		matchConditions = append(matchConditions, matchBson)
 	}
 
-	if opt.Categories != nil {
-		cond := bson.D{{Key: "categories", Value: bson.D{{Key: "$in", Value: opt.Categories}}}}
-		matchConditions = append(matchConditions, cond)
+	if opt.Categories != nil || len(opt.Categories) != 0 {
+
+		paginationErr = builder.Match("categories", opt.Categories, models.ContainsInMatchType)
+		if paginationErr != nil {
+			return
+		}
 	}
 
-	if len(matchConditions) == 0 {
-		matchConditions = append(matchConditions, bson.D{})
-	}
-
-	matchStage := bson.D{
-		{
-			Key: "$match", Value: bson.D{
-				{Key: "$and", Value: matchConditions},
-			},
-		},
-	}
-
-	paginateResultQuery := bson.A{
-		bson.D{{Key: "$sort", Value: bson.D{{Key: "title", Value: 1}, {Key: "author", Value: 1}}}},
-		bson.D{{Key: "$skip", Value: (opt.CurrentPage - 1) * m.BaseModel.SearchLenLimit}},
-		bson.D{{Key: "$limit", Value: m.BaseModel.SearchLenLimit}},
-		bson.D{{Key: "$group", Value: bson.D{
-			{Key: "_id", Value: nil},
-			{Key: "data", Value: bson.D{{Key: "$push", Value: "$$ROOT"}}},
-			{Key: "count", Value: bson.D{{Key: "$sum", Value: 1}}},
-		}}},
-	}
-
-	matchResultQuery := bson.A{
-		bson.D{{Key: "$count", Value: "total"}},
-	}
-
-	facetStage := bson.D{
-		{
-			Key: "$facet", Value: bson.D{
-				{Key: "paginate_result", Value: paginateResultQuery},
-				{Key: "match_result", Value: matchResultQuery},
-			},
-		},
-	}
-
-	projectStage := bson.D{
-		{
-			Key: "$project", Value: bson.D{
-				{Key: "count", Value: bson.D{{Key: "$first", Value: "$paginate_result.count"}}},
-				{Key: "total", Value: bson.D{{Key: "$first", Value: "$match_result.total"}}},
-				{Key: "data", Value: bson.D{{Key: "$first", Value: "$paginate_result.data"}}},
-			},
-		},
-	}
-
-	paginationData, paginationErr = m.BaseModel.Search(models.SearchOption{
+	paginationData, paginationErr = m.BaseModel.Search(models.BaseSearchOption{
 		CurrentPage: opt.CurrentPage,
-		Pipeline:    mongo.Pipeline{matchStage, facetStage, projectStage},
+		Pipeline:    builder.BuildPipeline(),
 	})
 
 	return

@@ -5,13 +5,14 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/supakorn-kn/go-crud/errors"
+	"github.com/supakorn-kn/go-crud/models"
 )
 
 const (
 	responseContextKey = "response"
 )
 
-func RegisterCrudAPI[Item any](api CrudAPI[Item], group *gin.RouterGroup) {
+func RegisterCrudAPI[Item models.Item](api CrudAPI[Item], group *gin.RouterGroup) {
 
 	group.Use(func(ctx *gin.Context) {
 

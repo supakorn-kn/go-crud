@@ -2,9 +2,9 @@ package models
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
-	"github.com/supakorn-kn/go-crud/errors"
+	serverError "github.com/supakorn-kn/go-crud/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 )
@@ -13,9 +13,21 @@ type Item interface {
 	GetID() string
 }
 
-type SearchOption struct {
-	CurrentPage int
-	Pipeline    mongo.Pipeline
+type PaginationData[Data Item] struct {
+	Page       int    `json:"page"`
+	TotalPages int    `json:"total_pages"`
+	Data       []Data `json:"data"`
+}
+
+type Model[T Item] interface {
+	BaseModel[Item]
+
+	GetCollectionName() string
+	Insert(item Item) error
+	GetByID(itemID string) (Item, error)
+	Search() (PaginationData[Item], error)
+	Update(item Item) error
+	Delete(itemID string) error
 }
 
 type BaseModel[item Item] struct {
@@ -25,19 +37,17 @@ type BaseModel[item Item] struct {
 	ItemIDKey string
 }
 
-func NewBaseModel[item Item](conn *mongo.Collection, searchLenLimit int, itemIDKey string) (*BaseModel[item], error) {
+func (m *BaseModel[T]) Inject(conn *mongo.Collection, searchLenLimit int, itemIDKey string) error {
 
 	if searchLenLimit < 1 {
-		return nil, fmt.Errorf("PaginateSize value can be only positive integer")
+		return errors.New("PaginateSize value can be only positive integer")
 	}
 
-	m := BaseModel[item]{
-		Coll:           conn,
-		SearchLenLimit: searchLenLimit,
-		ItemIDKey:      itemIDKey,
-	}
+	m.Coll = conn
+	m.SearchLenLimit = searchLenLimit
+	m.ItemIDKey = itemIDKey
 
-	return &m, nil
+	return nil
 }
 
 func (m BaseModel[T]) Insert(item T) error {
@@ -47,7 +57,7 @@ func (m BaseModel[T]) Insert(item T) error {
 
 		switch true {
 		case mongo.IsDuplicateKeyError(err):
-			return errors.DuplicatedObjectIDError.New(item.GetID())
+			return serverError.DuplicatedObjectIDError.New(item.GetID())
 		default:
 			return err
 		}
@@ -64,18 +74,17 @@ func (m BaseModel[T]) GetByID(itemID string) (item T, err error) {
 	switch err {
 
 	case mongo.ErrNoDocuments:
-		err = errors.ObjectIDNotFoundError.New(itemID)
+		err = serverError.ObjectIDNotFoundError.New(itemID)
 	}
 
 	return
 }
 
-func (m BaseModel[T]) Search(opt SearchOption) (paginationData PaginationData[T], paginateErr error) {
+func (m BaseModel[T]) Search(opt BaseSearchOption) (paginationData PaginationData[T], paginateErr error) {
 
 	var currentPage = opt.CurrentPage
-
 	if currentPage < 1 {
-		paginateErr = errors.CurrentPageInvalidError.New()
+		paginateErr = serverError.CurrentPageInvalidError.New()
 		return
 	}
 
@@ -115,14 +124,32 @@ func (m BaseModel[T]) Update(item T) error {
 		return err
 	}
 
-	//TODO: Research to choose update or replace
-	result := m.Coll.FindOneAndReplace(context.Background(), filter, item)
+	b, err := bson.Marshal(item)
+	if err != nil {
+		return err
+	}
+
+	var parsedBson bson.D
+	err = bson.Unmarshal(b, &parsedBson)
+	if err != nil {
+		return err
+	}
+
+	var updateBson bson.D
+	for _, keyValue := range parsedBson {
+
+		if keyValue.Key != m.ItemIDKey {
+			updateBson = append(updateBson, keyValue)
+		}
+	}
+
+	result := m.Coll.FindOneAndUpdate(context.Background(), filter, bson.D{{Key: "$set", Value: updateBson}})
 	if err := result.Err(); err != nil {
 
 		switch err {
 
 		case mongo.ErrNoDocuments:
-			return errors.ObjectIDNotFoundError.New(item.GetID())
+			return serverError.ObjectIDNotFoundError.New(item.GetID())
 
 		default:
 			return err
@@ -142,7 +169,7 @@ func (m BaseModel[T]) Delete(itemID string) error {
 		switch err {
 
 		case mongo.ErrNoDocuments:
-			return errors.ObjectIDNotFoundError.New(itemID)
+			return serverError.ObjectIDNotFoundError.New(itemID)
 
 		default:
 			return err
