@@ -7,9 +7,13 @@ type Book struct {
 	Title       string   `json:"title" bson:"title,omitempty"`
 	Author      string   `json:"author" bson:"author,omitempty"`
 	Description string   `json:"description" bson:"description,omitempty"`
-	Categories  []string `json:"categories" bson:"categories"`
+	Categories  []string `json:"categories" bson:"categories,omitempty"`
 }
 
-func (b *Book) IsNil() bool {
+func (b Book) GetID() string {
+	return b.BookID
+}
+
+func (b Book) IsNil() bool {
 	return reflect.ValueOf(b).IsZero()
 }

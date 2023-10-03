@@ -10,11 +10,19 @@ type Error interface {
 	New(args ...any) BaseError
 }
 
+type ErrorType int
+
+const (
+	InternalServerError ErrorType = iota
+	ResponseError
+)
+
 type BaseError struct {
 	Code    int    `json:"code"`
 	Name    string `json:"name"`
 	Message string `json:"message"`
 
+	ErrorType     ErrorType `json:"-"`
 	messageFormat string
 }
 
@@ -48,7 +56,7 @@ func IsError(err error, expectedError BaseError) bool {
 	return asserted.Code == expectedError.Code && asserted.Message == expectedError.Message
 }
 
-func new(errorCode int, name string, messageFormat string) Error {
+func new(errorCode int, errorType ErrorType, name string, messageFormat string) Error {
 
-	return &BaseError{Code: errorCode, Name: name, messageFormat: messageFormat}
+	return &BaseError{Code: errorCode, ErrorType: errorType, Name: name, messageFormat: messageFormat}
 }

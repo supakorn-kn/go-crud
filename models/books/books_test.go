@@ -18,7 +18,7 @@ import (
 type BooksModelTestSuite struct {
 	suite.Suite
 	conn         *mongodb.MongoDBConn
-	booksModel   *BooksModel
+	model        *BooksModel
 	insertedBook objects.Book
 }
 
@@ -28,16 +28,16 @@ func (s *BooksModelTestSuite) SetupSuite() {
 	conn := mongodb.New("mongodb://localhost:27017", "go-crud_test")
 	err := conn.Connect()
 	if err != nil {
-		s.Require().Fail("Create Mongodb connection failed", err)
+		s.FailNow("Create Mongodb connection failed", err)
 	}
 
 	booksModel, err := NewBooksModel(&conn)
 	if err != nil {
-		defer s.conn.Disconnect()
-		s.Require().Fail("Setup Book model failed", err)
+		defer conn.Disconnect()
+		s.FailNow("Setup Book model failed", err)
 	}
 
-	s.booksModel = booksModel
+	s.model = booksModel
 	s.conn = &conn
 }
 
@@ -48,16 +48,17 @@ func (s *BooksModelTestSuite) BeforeTest(suiteName, testName string) {
 	}
 
 	s.insertedBook = fakeBook()
-	s.Require().NoError(s.booksModel.Insert(s.insertedBook), "Setup test failed from inserting book")
+	s.Require().NoError(s.model.Insert(s.insertedBook), "Setup test failed from inserting book")
 }
 
 func (s *BooksModelTestSuite) AfterTest(suiteName, testName string) {
 
-	_, err := s.booksModel.coll.DeleteMany(context.Background(), bson.D{})
+	_, err := s.model.Coll.DeleteMany(context.Background(), bson.D{})
 	s.Require().NoError(err)
 }
 
 func (s *BooksModelTestSuite) TearDownSuite() {
+
 	s.conn.GetDatabase().Drop(context.Background())
 	s.conn.Disconnect()
 }
@@ -68,26 +69,26 @@ func (s *BooksModelTestSuite) TestInsert() {
 
 		book := fakeBook()
 
-		err := s.booksModel.Insert(book)
+		err := s.model.Insert(book)
 		s.Require().NoError(err, "Inserting Book failed")
 
-		result := s.booksModel.coll.FindOne(context.Background(), bson.D{{Key: "book_id", Value: book.BookID}})
+		result := s.model.Coll.FindOne(context.Background(), bson.D{{Key: "book_id", Value: book.BookID}})
 
 		var actual objects.Book
-		s.Require().NoError(result.Decode(&actual), "Reading inserted Book failed")
-		s.Require().EqualValues(book, actual, "Read Data is not the same as inserted")
+		s.Require().NoError(result.Decode(&actual), "Unmarshalling inserted Book failed")
+		s.Require().EqualValues(book, actual, "Read data is not the same as inserted")
 	})
 
 	s.Run("Should throw error when insert book with existed book ID", func() {
 
 		book := fakeBook()
 
-		err := s.booksModel.Insert(book)
+		err := s.model.Insert(book)
 		s.Require().NoError(err, "Inserting Book failed")
 
 		newBook := fakeBook()
 		newBook.BookID = book.BookID
-		err = s.booksModel.Insert(newBook)
+		err = s.model.Insert(newBook)
 		s.Require().Error(err, "Should have thrown errorr")
 	})
 
@@ -100,7 +101,7 @@ func (s *BooksModelTestSuite) TestInsert() {
 			invalidBook := book
 			invalidBook.BookID = ""
 
-			err := s.booksModel.Insert(invalidBook)
+			err := s.model.Insert(invalidBook)
 			s.Require().Error(err, "Should throw error")
 		})
 
@@ -109,7 +110,7 @@ func (s *BooksModelTestSuite) TestInsert() {
 			invalidBook := book
 			invalidBook.Title = ""
 
-			err := s.booksModel.Insert(invalidBook)
+			err := s.model.Insert(invalidBook)
 			s.Require().Error(err, "Should throw error")
 		})
 
@@ -118,16 +119,16 @@ func (s *BooksModelTestSuite) TestInsert() {
 			invalidBook := book
 			invalidBook.Author = ""
 
-			err := s.booksModel.Insert(invalidBook)
+			err := s.model.Insert(invalidBook)
 			s.Require().Error(err, "Should throw error")
 		})
 
 		s.Run("Use nil categories", func() {
 
-			invalidBook := book
+			invalidBook := fakeBook()
 			invalidBook.Categories = nil
 
-			err := s.booksModel.Insert(invalidBook)
+			err := s.model.Insert(invalidBook)
 			s.Require().Error(err, "Should throw error")
 		})
 	})
@@ -137,7 +138,7 @@ func (s *BooksModelTestSuite) TestGetByID() {
 
 	s.Run("Should get the book by book_id properly", func() {
 
-		actual, err := s.booksModel.GetByID(s.insertedBook.BookID)
+		actual, err := s.model.GetByID(s.insertedBook.BookID)
 		s.Require().NoError(err, "Delete exist book failed")
 		s.Require().EqualValues(s.insertedBook, actual)
 	})
@@ -146,7 +147,7 @@ func (s *BooksModelTestSuite) TestGetByID() {
 
 		itemID := "non-exist_id"
 
-		actual, err := s.booksModel.GetByID(itemID)
+		actual, err := s.model.GetByID(itemID)
 		s.Require().Equal(errors.ObjectIDNotFoundError.New(itemID), err, "Should throw error")
 		s.Require().Empty(actual)
 	})
@@ -176,10 +177,10 @@ func (s *BooksModelTestSuite) TestSearch() {
 		Categories:  []string{"Category A", "Category B"},
 	}
 
-	var initialLimit = s.booksModel.limit
-	s.booksModel.limit = 2
+	var initialLimit = s.model.SearchLenLimit
+	s.model.SearchLenLimit = 2
 	s.T().Cleanup(func() {
-		s.booksModel.limit = initialLimit
+		s.model.SearchLenLimit = initialLimit
 	})
 
 	sortedBooks := []objects.Book{bookA, bookC, bookB}
@@ -188,7 +189,7 @@ func (s *BooksModelTestSuite) TestSearch() {
 	gofakeit.ShuffleAnySlice(shuffledBooks)
 
 	for _, book := range shuffledBooks {
-		s.Require().NoError(s.booksModel.Insert(book), "Insert books before testing failed")
+		s.Require().NoError(s.model.Insert(book), "Insert books before testing failed")
 	}
 
 	s.Run("Should get book properly by given options", func() {
@@ -279,7 +280,7 @@ func (s *BooksModelTestSuite) TestSearch() {
 
 			s.Run(fmt.Sprintf("Search with option %s", optionName), func() {
 
-				paginationData, err := s.booksModel.Search(testCase.Option)
+				paginationData, err := s.model.Search(testCase.Option)
 				s.Require().NoError(err, "Searching book failed")
 				s.Require().EqualValues(testCase.Expected, paginationData)
 			})
@@ -288,14 +289,14 @@ func (s *BooksModelTestSuite) TestSearch() {
 
 	s.Run("Should throw error when set current page as non-positive value", func() {
 
-		result, err := s.booksModel.Search(SearchOption{CurrentPage: 0})
+		result, err := s.model.Search(SearchOption{CurrentPage: 0})
 		s.Require().Equal(errors.CurrentPageInvalidError.New(), err, "Should have returned error")
 		s.Require().Empty(result)
 	})
 
 	s.Run("Should throw error when set invalid or unsupported match type", func() {
 
-		result, err := s.booksModel.Search(
+		result, err := s.model.Search(
 			SearchOption{
 				CurrentPage: 1,
 				Title: models.MatchOption{
@@ -315,23 +316,48 @@ func (s *BooksModelTestSuite) TestUpdate() {
 		bookToUpdate := fakeBook()
 		bookToUpdate.BookID = s.insertedBook.BookID
 
-		s.Require().NoError(s.booksModel.Update(bookToUpdate))
+		s.Require().NoError(s.model.Update(bookToUpdate))
 
 		s.T().Cleanup(func() {
-			s.Require().NoError(s.booksModel.Update(s.insertedBook))
+			s.Require().NoError(s.model.Update(s.insertedBook))
 		})
 
-		actual, err := s.booksModel.GetByID(bookToUpdate.BookID)
+		actual, err := s.model.GetByID(bookToUpdate.BookID)
 		s.Require().NoError(err, "Getting updated book failed")
 		s.Require().EqualValues(bookToUpdate, actual)
+	})
+
+	s.Run("Should update partial data in book properly", func() {
+
+		mockBook := fakeBook()
+
+		var bookToUpdate = objects.Book{
+			BookID:      s.insertedBook.BookID,
+			Author:      mockBook.Author,
+			Description: mockBook.Description,
+		}
+
+		s.Require().NoError(s.model.Update(bookToUpdate))
+
+		s.T().Cleanup(func() {
+			s.Require().NoError(s.model.Update(s.insertedBook))
+		})
+
+		expected := s.insertedBook
+		expected.Author = bookToUpdate.Author
+		expected.Description = bookToUpdate.Description
+
+		actual, err := s.model.GetByID(expected.BookID)
+		s.Require().NoError(err, "Getting updated book failed")
+		s.Require().EqualValues(expected, actual)
 	})
 
 	s.Run("Should throw error when update non-exist book", func() {
 
 		bookToUpdate := fakeBook()
-		s.Require().Error(s.booksModel.Update(bookToUpdate))
+		s.Require().Error(s.model.Update(bookToUpdate))
 
-		actual, err := s.booksModel.GetByID(s.insertedBook.BookID)
+		actual, err := s.model.GetByID(s.insertedBook.BookID)
 		s.Require().NoError(err, "Getting updated book failed")
 		s.Require().EqualValues(s.insertedBook, actual)
 	})
@@ -341,16 +367,16 @@ func (s *BooksModelTestSuite) TestDelete() {
 
 	s.Run("Should delete exist book properly", func() {
 
-		s.Require().NoError(s.booksModel.Delete(s.insertedBook.BookID), "Delete exist book failed")
+		s.Require().NoError(s.model.Delete(s.insertedBook.BookID), "Delete exist book failed")
 
-		actual, err := s.booksModel.GetByID(s.insertedBook.BookID)
+		actual, err := s.model.GetByID(s.insertedBook.BookID)
 		s.Require().Error(err, "Should throw error after getting deleted book")
 		s.Require().Empty(actual, "The book should have been empty")
 	})
 
 	s.Run("Should throw error when delete non-exist book", func() {
 
-		s.Require().Error(s.booksModel.Delete(s.insertedBook.BookID), "Delete exist book failed")
+		s.Require().Error(s.model.Delete(s.insertedBook.BookID), "Delete exist book failed")
 	})
 }
 

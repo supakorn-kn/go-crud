@@ -11,7 +11,7 @@ type CRUDResponse struct {
 	Error  errors.BaseError `json:"error,omitempty"`
 }
 
-type CrudAPI[Item any] interface {
+type CrudAPI[Item models.Item] interface {
 	Insert(ctx *gin.Context) error
 	ReadOne(itemID string, ctx *gin.Context) (*Item, error)
 	Read(ctx *gin.Context) (*models.PaginationData[Item], error)

@@ -2,10 +2,9 @@ package books
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"slices"
 
-	"github.com/supakorn-kn/go-crud/errors"
 	"github.com/supakorn-kn/go-crud/models"
 	"github.com/supakorn-kn/go-crud/mongodb"
 	"github.com/supakorn-kn/go-crud/objects"
@@ -23,29 +22,22 @@ type SearchOption struct {
 }
 
 type BooksModel struct {
-	coll  *mongo.Collection
-	limit int
+	models.BaseModel[objects.Book]
 }
 
 func NewBooksModel(conn *mongodb.MongoDBConn, paginateSize ...int) (*BooksModel, error) {
 
-	paginateSizeLen := len(paginateSize)
+	var searchSize int = 10
 
+	paginateSizeLen := len(paginateSize)
 	if paginateSizeLen > 1 {
-		return nil, fmt.Errorf("PaginateSize can have only one elements")
+		return nil, errors.New("PaginateSize can have only one elements")
+	} else if paginateSizeLen == 1 {
+		searchSize = paginateSize[0]
 	}
 
 	booksModel := BooksModel{}
-
-	if paginateSizeLen == 0 {
-		booksModel.limit = 10
-	} else if paginateSize[0] < 1 {
-		return nil, fmt.Errorf("PaginateSize value can be only positive integer")
-	} else {
-		booksModel.limit = paginateSize[0]
-	}
-
-	err := booksModel.init(conn)
+	err := booksModel.init(conn, searchSize)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +49,7 @@ func (m BooksModel) GetCollectionName() string {
 	return "books_info"
 }
 
-func (m *BooksModel) init(conn *mongodb.MongoDBConn) error {
+func (m *BooksModel) init(conn *mongodb.MongoDBConn, paginateSize int) error {
 
 	err := m.initCollection(conn)
 	if err != nil {
@@ -70,19 +62,23 @@ func (m *BooksModel) init(conn *mongodb.MongoDBConn) error {
 	}
 
 	coll := conn.GetDatabase().Collection(m.GetCollectionName())
-	m.coll = coll
+
+	err = m.BaseModel.Inject(coll, paginateSize, "book_id")
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
 
 func (m BooksModel) initCollection(conn *mongodb.MongoDBConn) error {
 
-	bookDB := conn.GetDatabase()
+	crudDB := conn.GetDatabase()
 	collectionName := m.GetCollectionName()
 
 	filter := bson.D{}
 	option := options.ListCollections()
-	collectionNameList, err := bookDB.ListCollectionNames(context.Background(), filter, option)
+	collectionNameList, err := crudDB.ListCollectionNames(context.Background(), filter, option)
 	if err != nil {
 		return err
 	}
@@ -125,13 +121,13 @@ func (m BooksModel) initCollection(conn *mongodb.MongoDBConn) error {
 	if slices.Contains(collectionNameList, collectionName) {
 
 		cmd := bson.D{
-			{Key: "collMod", Value: "books_info"},
+			{Key: "collMod", Value: collectionName},
 			{Key: "validator", Value: validator},
 			{Key: "validationLevel", Value: "strict"},
 		}
 
 		option := options.RunCmd()
-		result := bookDB.RunCommand(context.Background(), cmd, option)
+		result := crudDB.RunCommand(context.Background(), cmd, option)
 		if err := result.Err(); err != nil {
 			return err
 		}
@@ -143,7 +139,7 @@ func (m BooksModel) initCollection(conn *mongodb.MongoDBConn) error {
 	collectionOption.SetValidator(validator)
 	collectionOption.SetValidationLevel("strict")
 
-	err = bookDB.CreateCollection(context.Background(), collectionName, collectionOption)
+	err = crudDB.CreateCollection(context.Background(), collectionName, collectionOption)
 	if err != nil {
 		return err
 	}
@@ -157,7 +153,7 @@ func (m BooksModel) initIndexes(conn *mongodb.MongoDBConn) error {
 	coll := conn.GetDatabase().Collection(collectionName)
 	cur, err := coll.Indexes().List(context.Background())
 	if err != nil {
-		return nil
+		return err
 	}
 
 	var titleAndAuthorIndexName = "title_1_author_1"
@@ -220,194 +216,56 @@ func (m BooksModel) initIndexes(conn *mongodb.MongoDBConn) error {
 	return nil
 }
 
-func (m BooksModel) Insert(book objects.Book) error {
+func (m BooksModel) Search(opt SearchOption) (paginationData models.PaginationData[objects.Book], paginationErr error) {
 
-	_, err := m.coll.InsertOne(context.Background(), book, &options.InsertOneOptions{})
+	paginationErr = nil
 
-	switch true {
-	case mongo.IsDuplicateKeyError(err):
-		return errors.DuplicatedObjectIDError.New(book.BookID)
-	}
-
-	return err
-}
-
-func (m BooksModel) GetByID(bookID string) (objects.Book, error) {
-
-	result := m.coll.FindOne(context.Background(), bson.D{{Key: "book_id", Value: bookID}})
-
-	var book objects.Book
-	err := result.Decode(&book)
-	if err == nil {
-		return book, nil
-	}
-
-	switch err {
-
-	case mongo.ErrNoDocuments:
-		err = errors.ObjectIDNotFoundError.New(bookID)
-	}
-
-	return book, err
-}
-
-func (m BooksModel) Search(opt SearchOption) (b models.PaginationData[objects.Book], paginateErr error) {
-
-	if opt.CurrentPage < 1 {
-		paginateErr = errors.CurrentPageInvalidError.New()
+	var builder = models.NewSearchPipelineBuilder()
+	paginationErr = builder.SortedBy([]models.SortData{
+		{
+			Key:    "title",
+			SortBy: models.SortASC,
+		},
+		{
+			Key:    "author",
+			SortBy: models.SortASC,
+		},
+	})
+	if paginationErr != nil {
 		return
 	}
 
-	matchConditions := bson.A{}
+	builder.Skip((opt.CurrentPage - 1) * m.BaseModel.SearchLenLimit)
+	builder.Limit(m.BaseModel.SearchLenLimit)
+
 	if !opt.Title.IsNil() {
 
-		matchBson, err := models.CreateMatchBson("title", opt.Title.Value, opt.Title.MatchType)
-		if err != nil {
-			paginateErr = err
+		paginationErr = builder.Match("title", opt.Title.Value, opt.Title.MatchType)
+		if paginationErr != nil {
 			return
 		}
-
-		matchConditions = append(matchConditions, matchBson)
 	}
 
 	if !opt.Author.IsNil() {
 
-		matchBson, err := models.CreateMatchBson("author", opt.Author.Value, opt.Author.MatchType)
-		if err != nil {
-			paginateErr = err
+		paginationErr = builder.Match("author", opt.Author.Value, opt.Author.MatchType)
+		if paginationErr != nil {
 			return
 		}
-
-		matchConditions = append(matchConditions, matchBson)
 	}
 
-	if opt.Categories != nil {
-		cond := bson.D{{Key: "categories", Value: bson.D{{Key: "$in", Value: opt.Categories}}}}
-		matchConditions = append(matchConditions, cond)
+	if opt.Categories != nil || len(opt.Categories) != 0 {
+
+		paginationErr = builder.Match("categories", opt.Categories, models.ContainsInMatchType)
+		if paginationErr != nil {
+			return
+		}
 	}
 
-	if len(matchConditions) == 0 {
-		matchConditions = append(matchConditions, bson.D{})
-	}
-
-	matchStage := bson.D{
-		{
-			Key: "$match", Value: bson.D{
-				{Key: "$and", Value: matchConditions},
-			},
-		},
-	}
-
-	paginateResultQuery := bson.A{
-		bson.D{{Key: "$sort", Value: bson.D{{Key: "title", Value: 1}, {Key: "author", Value: 1}}}},
-		bson.D{{Key: "$skip", Value: (opt.CurrentPage - 1) * m.limit}},
-		bson.D{{Key: "$limit", Value: m.limit}},
-		bson.D{{Key: "$group", Value: bson.D{
-			{Key: "_id", Value: nil},
-			{Key: "data", Value: bson.D{{Key: "$push", Value: "$$ROOT"}}},
-			{Key: "count", Value: bson.D{{Key: "$sum", Value: 1}}},
-		}}},
-	}
-
-	matchResultQuery := bson.A{
-		bson.D{{Key: "$count", Value: "total"}},
-	}
-
-	facetStage := bson.D{
-		{
-			Key: "$facet", Value: bson.D{
-				{Key: "paginate_result", Value: paginateResultQuery},
-				{Key: "match_result", Value: matchResultQuery},
-			},
-		},
-	}
-
-	projectStage := bson.D{
-		{
-			Key: "$project", Value: bson.D{
-				{Key: "count", Value: bson.D{{Key: "$first", Value: "$paginate_result.count"}}},
-				{Key: "total", Value: bson.D{{Key: "$first", Value: "$match_result.total"}}},
-				{Key: "data", Value: bson.D{{Key: "$first", Value: "$paginate_result.data"}}},
-			},
-		},
-	}
-
-	option := options.Aggregate()
-
-	//NOTE: Research more before applying it
-	//option.SetHint("book_id_1")
-	pipeline := mongo.Pipeline{matchStage, facetStage, projectStage}
-
-	cur, err := m.coll.Aggregate(context.Background(), pipeline, option)
-	if err != nil {
-		paginateErr = err
-		return
-	}
-
-	var aggResultList []models.AggregatedResult[objects.Book]
-	err = cur.All(context.Background(), &aggResultList)
-	if err != nil {
-		paginateErr = err
-		return
-	}
-
-	aggResult := aggResultList[0]
-
-	totalPages := aggResult.Total / m.limit
-	if aggResult.Total%m.limit > 0 {
-		totalPages++
-	}
-
-	b = models.PaginationData[objects.Book]{
-		Data:       aggResult.Data,
-		Page:       opt.CurrentPage,
-		TotalPages: totalPages,
-	}
+	paginationData, paginationErr = m.BaseModel.Search(models.BaseSearchOption{
+		CurrentPage: opt.CurrentPage,
+		Pipeline:    builder.BuildPipeline(),
+	})
 
 	return
-}
-
-func (m BooksModel) Update(book objects.Book) error {
-
-	filter, err := models.CreateMatchBson("book_id", book.BookID, models.EqualMatchType)
-	if err != nil {
-		return err
-	}
-
-	//TODO: Research to choose update or replace
-	result := m.coll.FindOneAndReplace(context.Background(), filter, book)
-	if err := result.Err(); err != nil {
-
-		switch err {
-
-		case mongo.ErrNoDocuments:
-			return errors.ObjectIDNotFoundError.New(book.BookID)
-
-		default:
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (m BooksModel) Delete(bookID string) error {
-
-	filter := bson.D{{Key: "book_id", Value: bookID}}
-
-	option := options.FindOneAndDelete()
-	result := m.coll.FindOneAndDelete(context.Background(), filter, option)
-	if err := result.Err(); err != nil {
-
-		switch err {
-
-		case mongo.ErrNoDocuments:
-			return errors.ObjectIDNotFoundError.New(bookID)
-
-		default:
-			return err
-		}
-	}
-
-	return nil
 }
