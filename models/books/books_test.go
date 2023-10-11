@@ -49,17 +49,13 @@ func (s *BooksModelTestSuite) BeforeTest(suiteName, testName string) {
 
 	s.insertedBook = fakeBook()
 	s.Require().NoError(s.model.Insert(s.insertedBook), "Setup test failed from inserting book")
-}
 
-func (s *BooksModelTestSuite) AfterTest(suiteName, testName string) {
-
-	_, err := s.model.Coll.DeleteMany(context.Background(), bson.D{})
-	s.Require().NoError(err)
+	_, err := s.model.GetByID(s.insertedBook.BookID)
+	s.Require().NoError(err, "Setup test failed from inserting book")
 }
 
 func (s *BooksModelTestSuite) TearDownSuite() {
 
-	s.conn.GetDatabase().Drop(context.Background())
 	s.conn.Disconnect()
 }
 

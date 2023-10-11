@@ -17,16 +17,23 @@ type AggregatedResult[T any] struct {
 
 type MatchType uint8
 
-func (enum MatchType) String() string {
-	return [...]string{"Equal", "Partial", "Start with", "End with", "Contains in"}[enum]
-}
+// var matchTypeEnumStrings = [...]string{"Equal", "Partial", "Start with", "End with", "Contains in"}
+
+// func (enum MatchType) String() string {
+
+// 	if int(enum) >= len(matchTypeEnumStrings) {
+// 		return "invalid"
+// 	}
+
+// 	return matchTypeEnumStrings[enum]
+// }
 
 const (
-	EqualMatchType      = 0
-	PartialMatchType    = 1
-	StartWithMatchType  = 2
-	EndWithMatchType    = 3
-	ContainsInMatchType = 4
+	EqualMatchType      MatchType = 0
+	PartialMatchType    MatchType = 1
+	StartWithMatchType  MatchType = 2
+	EndWithMatchType    MatchType = 3
+	ContainsInMatchType MatchType = 4
 )
 
 type BaseSearchOption struct {
@@ -72,7 +79,6 @@ func NewSearchPipelineBuilder() *SearchPipelineBuilder {
 func (b *SearchPipelineBuilder) SortedBy(sortDataList []SortData) error {
 
 	if len(sortDataList) == 0 {
-
 		return crud_errors.SortListInvalidError.New()
 	}
 
@@ -85,7 +91,6 @@ func (b *SearchPipelineBuilder) SortedBy(sortDataList []SortData) error {
 	for _, sortData := range sortDataList {
 
 		if _, found := b.sortKeys[sortData.Key]; found {
-
 			return crud_errors.MatchKeyDuplicatedError.New(sortData.Key)
 		}
 
@@ -106,7 +111,6 @@ func (b *SearchPipelineBuilder) Match(key string, value any, matchType MatchType
 	}
 
 	if _, found := b.matchKeys[key]; found {
-
 		return crud_errors.MatchKeyDuplicatedError.New(key)
 	}
 
@@ -139,17 +143,21 @@ func (b *SearchPipelineBuilder) BuildPipeline() mongo.Pipeline {
 
 func (b *SearchPipelineBuilder) createMatchStage() bson.D {
 
-	if len(b.matches) == 0 {
-		b.matches = append(b.matches, bson.D{})
-	}
-
-	return bson.D{
+	matchQuery := bson.D{
 		{
-			Key: "$match", Value: bson.D{
-				{Key: "$and", Value: b.matches},
-			},
+			Key: "$match", Value: bson.D{},
 		},
 	}
+
+	if len(b.matches) == 1 {
+		matchQuery[0].Value = b.matches[0]
+	} else if len(b.matches) > 1 {
+		matchQuery[0].Value = bson.D{
+			{Key: "$and", Value: b.matches},
+		}
+	}
+
+	return matchQuery
 }
 
 func (b *SearchPipelineBuilder) createFacetStage() bson.D {

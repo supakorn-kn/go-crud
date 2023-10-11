@@ -5,10 +5,10 @@ const (
 	ObjectIDNotFoundErrorCode   = 200_002
 	DuplicatedObjectIDErrorCode = 200_003
 	MatchTypeInvalidErrorCode   = 200_004
-
 	SortListInvalidErrorCode    = 200_005
 	MatchKeyDuplicatedErrorCode = 200_006
 	MatchValueInvalidErrorCode  = 200_007
+	DataAlreadyInUsedErrorCode  = 200_008
 )
 
 // CurrentPageInvalidError indicates user gives invalid current page when searching items
@@ -31,3 +31,6 @@ var SortListInvalidError = new(SortListInvalidErrorCode, InternalServerError, "S
 
 // MatchKeyDuplicatedError indicates internal error when server create match query but there's more than one same key to do matching
 var MatchKeyDuplicatedError = new(MatchKeyDuplicatedErrorCode, InternalServerError, "MatchKeyDuplicated", "Match key %s is duplicated")
+
+// DataAlreadyInUsedError indicates user give data to insert but there's one used the data
+var DataAlreadyInUsedError = new(DataAlreadyInUsedErrorCode, ResponseError, "DataAlreadyInUsed", "Given data is already in used")

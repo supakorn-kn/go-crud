@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 
+	serverError "github.com/supakorn-kn/go-crud/errors"
 	"github.com/supakorn-kn/go-crud/models"
 	"github.com/supakorn-kn/go-crud/mongodb"
 	"github.com/supakorn-kn/go-crud/objects"
@@ -51,7 +53,7 @@ func (m BooksModel) GetCollectionName() string {
 
 func (m *BooksModel) init(conn *mongodb.MongoDBConn, paginateSize int) error {
 
-	err := m.initCollection(conn)
+	coll, err := m.createCollection(conn)
 	if err != nil {
 		return err
 	}
@@ -61,8 +63,6 @@ func (m *BooksModel) init(conn *mongodb.MongoDBConn, paginateSize int) error {
 		return err
 	}
 
-	coll := conn.GetDatabase().Collection(m.GetCollectionName())
-
 	err = m.BaseModel.Inject(coll, paginateSize, "book_id")
 	if err != nil {
 		return err
@@ -71,16 +71,16 @@ func (m *BooksModel) init(conn *mongodb.MongoDBConn, paginateSize int) error {
 	return nil
 }
 
-func (m BooksModel) initCollection(conn *mongodb.MongoDBConn) error {
+func (m BooksModel) createCollection(conn *mongodb.MongoDBConn) (*mongo.Collection, error) {
 
 	crudDB := conn.GetDatabase()
 	collectionName := m.GetCollectionName()
 
 	filter := bson.D{}
 	option := options.ListCollections()
-	collectionNameList, err := crudDB.ListCollectionNames(context.Background(), filter, option)
+	collectionNameList, err := crudDB.ListCollectionNames(context.TODO(), filter, option)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	validator := bson.D{
@@ -127,31 +127,30 @@ func (m BooksModel) initCollection(conn *mongodb.MongoDBConn) error {
 		}
 
 		option := options.RunCmd()
-		result := crudDB.RunCommand(context.Background(), cmd, option)
+		result := crudDB.RunCommand(context.TODO(), cmd, option)
 		if err := result.Err(); err != nil {
-			return err
+			return nil, err
 		}
+	} else {
 
-		return nil
+		collectionOption := options.CreateCollection()
+		collectionOption.SetValidator(validator)
+		collectionOption.SetValidationLevel("strict")
+
+		err = crudDB.CreateCollection(context.TODO(), collectionName, collectionOption)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	collectionOption := options.CreateCollection()
-	collectionOption.SetValidator(validator)
-	collectionOption.SetValidationLevel("strict")
-
-	err = crudDB.CreateCollection(context.Background(), collectionName, collectionOption)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return conn.GetCollection(m.GetCollectionName()), nil
 }
 
 func (m BooksModel) initIndexes(conn *mongodb.MongoDBConn) error {
 
 	collectionName := m.GetCollectionName()
 	coll := conn.GetDatabase().Collection(collectionName)
-	cur, err := coll.Indexes().List(context.Background())
+	cur, err := coll.Indexes().List(context.TODO())
 	if err != nil {
 		return err
 	}
@@ -160,7 +159,7 @@ func (m BooksModel) initIndexes(conn *mongodb.MongoDBConn) error {
 	var bookIDIndex = "book_id_1"
 
 	var indexes []bson.M
-	err = cur.All(context.Background(), &indexes)
+	err = cur.All(context.TODO(), &indexes)
 	if err != nil {
 		return err
 	}
@@ -183,7 +182,7 @@ func (m BooksModel) initIndexes(conn *mongodb.MongoDBConn) error {
 		}
 
 		option := options.CreateIndexes()
-		_, err = coll.Indexes().CreateOne(context.Background(), indexModel, option)
+		_, err = coll.Indexes().CreateOne(context.TODO(), indexModel, option)
 		if err != nil {
 			return err
 		}
@@ -207,7 +206,7 @@ func (m BooksModel) initIndexes(conn *mongodb.MongoDBConn) error {
 		}
 
 		option := options.CreateIndexes()
-		_, err = coll.Indexes().CreateOne(context.Background(), indexModel, option)
+		_, err = coll.Indexes().CreateOne(context.TODO(), indexModel, option)
 		if err != nil {
 			return err
 		}
@@ -216,9 +215,39 @@ func (m BooksModel) initIndexes(conn *mongodb.MongoDBConn) error {
 	return nil
 }
 
-func (m BooksModel) Search(opt SearchOption) (paginationData models.PaginationData[objects.Book], paginationErr error) {
+func (m BooksModel) Insert(book objects.Book) error {
 
-	paginationErr = nil
+	if strings.EqualFold(book.BookID, "") ||
+		strings.EqualFold(book.Title, "") ||
+		strings.EqualFold(book.Author, "") ||
+		strings.EqualFold(book.Description, "") ||
+		book.Categories == nil {
+
+		//TODO: Add validation failed
+		return errors.New(";w;")
+	}
+
+	filter := bson.D{
+		{
+			Key: "$or", Value: bson.A{
+				bson.D{{Key: m.ItemIDKey, Value: book.BookID}},
+				bson.D{{Key: "$and", Value: bson.A{
+					bson.D{{Key: "title", Value: book.Title}},
+					bson.D{{Key: "author", Value: book.Author}},
+				}}},
+			},
+		},
+	}
+
+	err := m.Coll.FindOne(context.TODO(), filter).Err()
+	if err == nil {
+		return serverError.DataAlreadyInUsedError.New()
+	}
+
+	return m.BaseModel.Insert(book)
+}
+
+func (m BooksModel) Search(opt SearchOption) (paginationData models.PaginationData[objects.Book], paginationErr error) {
 
 	var builder = models.NewSearchPipelineBuilder()
 	paginationErr = builder.SortedBy([]models.SortData{

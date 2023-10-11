@@ -20,7 +20,6 @@ import (
 	"github.com/supakorn-kn/go-crud/models/books"
 	"github.com/supakorn-kn/go-crud/mongodb"
 	"github.com/supakorn-kn/go-crud/objects"
-	"go.mongodb.org/mongo-driver/bson"
 )
 
 type BooksAPISuite struct {
@@ -68,17 +67,8 @@ func (s *BooksAPISuite) BeforeTest(suiteName, testName string) {
 	s.createdBook = book
 }
 
-func (s *BooksAPISuite) AfterTest(suiteName, testName string) {
-
-	collectionName := books.BooksModel{}.GetCollectionName()
-
-	_, err := s.conn.GetCollection(collectionName).DeleteMany(context.Background(), bson.D{})
-	s.Require().NoError(err)
-}
-
 func (s *BooksAPISuite) TearDownSuite() {
 
-	s.conn.GetDatabase().Drop(context.Background())
 	s.conn.Disconnect()
 }
 
@@ -118,7 +108,7 @@ func (s *BooksAPISuite) TestCreate() {
 		var resp apis.CRUDResponse
 		s.Require().NoError(json.Unmarshal(recorder.Body.Bytes(), &resp))
 		s.Require().Empty(resp.Result)
-		s.Require().True(errors.IsError(resp.Error, errors.DuplicatedObjectIDError.New(book.BookID)))
+		s.Require().True(errors.IsError(resp.Error, errors.DataAlreadyInUsedError.New()))
 	})
 }
 
