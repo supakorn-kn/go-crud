@@ -52,7 +52,7 @@ func (m *BaseModel[T]) Inject(conn *mongo.Collection, searchLenLimit int, itemID
 
 func (m BaseModel[T]) Insert(item T) error {
 
-	_, err := m.Coll.InsertOne(context.TODO(), item)
+	_, err := m.Coll.InsertOne(context.Background(), item)
 	if err != nil {
 
 		if mongo.IsDuplicateKeyError(err) {
@@ -67,7 +67,7 @@ func (m BaseModel[T]) Insert(item T) error {
 
 func (m BaseModel[T]) GetByID(itemID string) (item T, err error) {
 
-	result := m.Coll.FindOne(context.TODO(), bson.D{{Key: m.ItemIDKey, Value: itemID}})
+	result := m.Coll.FindOne(context.Background(), bson.D{{Key: m.ItemIDKey, Value: itemID}})
 
 	err = result.Decode(&item)
 	if errors.Is(err, mongo.ErrNoDocuments) {
@@ -87,13 +87,13 @@ func (m BaseModel[T]) Search(opt BaseSearchOption) (paginationData PaginationDat
 	}
 
 	var cur *mongo.Cursor
-	cur, paginateErr = m.Coll.Aggregate(context.TODO(), opt.Pipeline)
+	cur, paginateErr = m.Coll.Aggregate(context.Background(), opt.Pipeline)
 	if paginateErr != nil {
 		return
 	}
 
 	var aggResultList []AggregatedResult[T]
-	paginateErr = cur.All(context.TODO(), &aggResultList)
+	paginateErr = cur.All(context.Background(), &aggResultList)
 	if paginateErr != nil {
 		return
 	}
@@ -140,7 +140,7 @@ func (m BaseModel[T]) Update(item T) error {
 		}
 	}
 
-	result := m.Coll.FindOneAndUpdate(context.TODO(), filter, bson.D{{Key: "$set", Value: updateBson}})
+	result := m.Coll.FindOneAndUpdate(context.Background(), filter, bson.D{{Key: "$set", Value: updateBson}})
 	if err := result.Err(); err != nil {
 
 		if errors.Is(err, mongo.ErrNoDocuments) {
@@ -157,7 +157,7 @@ func (m BaseModel[T]) Delete(itemID string) error {
 
 	filter := bson.D{{Key: m.ItemIDKey, Value: itemID}}
 
-	result := m.Coll.FindOneAndDelete(context.TODO(), filter)
+	result := m.Coll.FindOneAndDelete(context.Background(), filter)
 	if err := result.Err(); err != nil {
 
 		if errors.Is(err, mongo.ErrNoDocuments) {

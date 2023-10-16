@@ -78,7 +78,7 @@ func (m BooksModel) createCollection(conn *mongodb.MongoDBConn) (*mongo.Collecti
 
 	filter := bson.D{}
 	option := options.ListCollections()
-	collectionNameList, err := crudDB.ListCollectionNames(context.TODO(), filter, option)
+	collectionNameList, err := crudDB.ListCollectionNames(context.Background(), filter, option)
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +127,7 @@ func (m BooksModel) createCollection(conn *mongodb.MongoDBConn) (*mongo.Collecti
 		}
 
 		option := options.RunCmd()
-		result := crudDB.RunCommand(context.TODO(), cmd, option)
+		result := crudDB.RunCommand(context.Background(), cmd, option)
 		if err := result.Err(); err != nil {
 			return nil, err
 		}
@@ -137,7 +137,7 @@ func (m BooksModel) createCollection(conn *mongodb.MongoDBConn) (*mongo.Collecti
 		collectionOption.SetValidator(validator)
 		collectionOption.SetValidationLevel("strict")
 
-		err = crudDB.CreateCollection(context.TODO(), collectionName, collectionOption)
+		err = crudDB.CreateCollection(context.Background(), collectionName, collectionOption)
 		if err != nil {
 			return nil, err
 		}
@@ -150,7 +150,7 @@ func (m BooksModel) initIndexes(conn *mongodb.MongoDBConn) error {
 
 	collectionName := m.GetCollectionName()
 	coll := conn.GetDatabase().Collection(collectionName)
-	cur, err := coll.Indexes().List(context.TODO())
+	cur, err := coll.Indexes().List(context.Background())
 	if err != nil {
 		return err
 	}
@@ -159,7 +159,7 @@ func (m BooksModel) initIndexes(conn *mongodb.MongoDBConn) error {
 	var bookIDIndex = "book_id_1"
 
 	var indexes []bson.M
-	err = cur.All(context.TODO(), &indexes)
+	err = cur.All(context.Background(), &indexes)
 	if err != nil {
 		return err
 	}
@@ -182,7 +182,7 @@ func (m BooksModel) initIndexes(conn *mongodb.MongoDBConn) error {
 		}
 
 		option := options.CreateIndexes()
-		_, err = coll.Indexes().CreateOne(context.TODO(), indexModel, option)
+		_, err = coll.Indexes().CreateOne(context.Background(), indexModel, option)
 		if err != nil {
 			return err
 		}
@@ -206,7 +206,7 @@ func (m BooksModel) initIndexes(conn *mongodb.MongoDBConn) error {
 		}
 
 		option := options.CreateIndexes()
-		_, err = coll.Indexes().CreateOne(context.TODO(), indexModel, option)
+		_, err = coll.Indexes().CreateOne(context.Background(), indexModel, option)
 		if err != nil {
 			return err
 		}
@@ -223,8 +223,7 @@ func (m BooksModel) Insert(book objects.Book) error {
 		strings.EqualFold(book.Description, "") ||
 		book.Categories == nil {
 
-		//TODO: Add validation failed
-		return errors.New(";w;")
+		return serverError.DataValidationFailedError.New()
 	}
 
 	filter := bson.D{
@@ -239,7 +238,7 @@ func (m BooksModel) Insert(book objects.Book) error {
 		},
 	}
 
-	err := m.Coll.FindOne(context.TODO(), filter).Err()
+	err := m.Coll.FindOne(context.Background(), filter).Err()
 	if err == nil {
 		return serverError.DataAlreadyInUsedError.New()
 	}
