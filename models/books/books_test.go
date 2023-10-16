@@ -26,10 +26,7 @@ func (s *BooksModelTestSuite) SetupSuite() {
 
 	//TODO: Will set parameter from env
 	conn := mongodb.New("mongodb://localhost:27017", "go-crud_test")
-	err := conn.Connect()
-	if err != nil {
-		s.FailNow("Create Mongodb connection failed", err)
-	}
+	s.Require().NoError(conn.Connect(), "Create Mongodb connection failed")
 
 	booksModel, err := NewBooksModel(&conn)
 	if err != nil {
@@ -49,17 +46,12 @@ func (s *BooksModelTestSuite) BeforeTest(suiteName, testName string) {
 
 	s.insertedBook = fakeBook()
 	s.Require().NoError(s.model.Insert(s.insertedBook), "Setup test failed from inserting book")
-}
 
-func (s *BooksModelTestSuite) AfterTest(suiteName, testName string) {
-
-	_, err := s.model.Coll.DeleteMany(context.Background(), bson.D{})
-	s.Require().NoError(err)
+	_, err := s.model.GetByID(s.insertedBook.BookID)
+	s.Require().NoError(err, "Setup test failed from inserting book")
 }
 
 func (s *BooksModelTestSuite) TearDownSuite() {
-
-	s.conn.GetDatabase().Drop(context.Background())
 	s.conn.Disconnect()
 }
 
@@ -156,32 +148,26 @@ func (s *BooksModelTestSuite) TestGetByID() {
 func (s *BooksModelTestSuite) TestSearch() {
 
 	bookA := objects.Book{
-		BookID:      "book_0",
-		Title:       "Title A",
-		Author:      "Author A",
+		BookID:      "book_search_0",
+		Title:       "Search_A_Title",
+		Author:      "Search_A_Author",
 		Description: "First book",
 		Categories:  []string{"Category A"},
 	}
 	bookB := objects.Book{
-		BookID:      "book_1",
-		Title:       "Title B",
-		Author:      "Author A",
-		Description: "book_0 author",
+		BookID:      "book_search_1",
+		Title:       "Search_B_Title",
+		Author:      "Search_A_Author",
+		Description: "book_search_0 author",
 		Categories:  []string{"Category B"},
 	}
 	bookC := objects.Book{
-		BookID:      "book_3",
-		Title:       "Title A",
-		Author:      "Author B",
+		BookID:      "book_search_3",
+		Title:       "Search_A_Title",
+		Author:      "Search_B_Author",
 		Description: "book_1 title and book_0,book_1 categories",
 		Categories:  []string{"Category A", "Category B"},
 	}
-
-	var initialLimit = s.model.SearchLenLimit
-	s.model.SearchLenLimit = 2
-	s.T().Cleanup(func() {
-		s.model.SearchLenLimit = initialLimit
-	})
 
 	sortedBooks := []objects.Book{bookA, bookC, bookB}
 
@@ -192,37 +178,56 @@ func (s *BooksModelTestSuite) TestSearch() {
 		s.Require().NoError(s.model.Insert(book), "Insert books before testing failed")
 	}
 
+	var initialLimit = s.model.SearchLenLimit
+	s.model.SearchLenLimit = 2
+
+	s.T().Cleanup(func() {
+		s.model.SearchLenLimit = initialLimit
+	})
+
+	totalDocumentsCount, err := s.model.Coll.CountDocuments(context.Background(), bson.D{})
+	s.Require().NoError(err)
+	totalAllDocumentsPage := totalDocumentsCount / int64(s.model.SearchLenLimit)
+	if totalDocumentsCount%int64(s.model.SearchLenLimit) != 0 {
+		totalAllDocumentsPage++
+	}
+
 	s.Run("Should get book properly by given options", func() {
 
 		var testCases = map[string]struct {
-			Expected models.PaginationData[objects.Book]
+			Validate func(*BooksModelTestSuite, models.PaginationData[objects.Book])
 			Option   SearchOption
 		}{
 			"None (Page 1)": {
-				Expected: models.PaginationData[objects.Book]{
-					Page:       1,
-					TotalPages: 2,
-					Data:       sortedBooks[:2],
+				Validate: func(s *BooksModelTestSuite, result models.PaginationData[objects.Book]) {
+
+					s.Equal(1, result.Page)
+					s.EqualValues(totalAllDocumentsPage, result.TotalPages)
+					s.Len(result.Data, 2)
 				},
 				Option: SearchOption{
 					CurrentPage: 1,
 				},
 			},
 			"None (Page 2)": {
-				Expected: models.PaginationData[objects.Book]{
-					Page:       2,
-					TotalPages: 2,
-					Data:       sortedBooks[2:],
+				Validate: func(s *BooksModelTestSuite, result models.PaginationData[objects.Book]) {
+					s.Equal(2, result.Page)
+					s.EqualValues(totalAllDocumentsPage, result.TotalPages)
+
+					dataLen := len(result.Data)
+
+					s.GreaterOrEqual(dataLen, 1)
+					s.Less(dataLen, 3)
 				},
 				Option: SearchOption{
 					CurrentPage: 2,
 				},
 			},
 			"Title (Equal)": {
-				Expected: models.PaginationData[objects.Book]{
-					Page:       1,
-					TotalPages: 1,
-					Data:       []objects.Book{bookA, bookC},
+				Validate: func(s *BooksModelTestSuite, result models.PaginationData[objects.Book]) {
+					s.Equal(1, result.Page)
+					s.EqualValues(1, result.TotalPages)
+					s.EqualValues([]objects.Book{bookA, bookC}, result.Data)
 				},
 				Option: SearchOption{
 					CurrentPage: 1,
@@ -233,44 +238,100 @@ func (s *BooksModelTestSuite) TestSearch() {
 				},
 			},
 			"Title (Partial)": {
-				Expected: models.PaginationData[objects.Book]{
-					Page:       1,
-					TotalPages: 1,
-					Data:       []objects.Book{bookB},
+				Validate: func(s *BooksModelTestSuite, result models.PaginationData[objects.Book]) {
+					s.Equal(1, result.Page)
+					s.EqualValues(1, result.TotalPages)
+					s.EqualValues([]objects.Book{bookB}, result.Data)
 				},
 				Option: SearchOption{
 					CurrentPage: 1,
 					Title: models.MatchOption{
 						MatchType: models.PartialMatchType,
-						Value:     "b",
+						Value:     "search_b",
 					},
 				},
 			},
 			"Title (Start with)": {
-				Expected: models.PaginationData[objects.Book]{
-					Page:       1,
-					TotalPages: 2,
-					Data:       sortedBooks[0:2],
+				Validate: func(s *BooksModelTestSuite, result models.PaginationData[objects.Book]) {
+					s.Equal(1, result.Page)
+					s.EqualValues(2, result.TotalPages)
+					s.EqualValues(sortedBooks[0:2], result.Data)
 				},
 				Option: SearchOption{
 					CurrentPage: 1,
 					Title: models.MatchOption{
 						MatchType: models.StartWithMatchType,
-						Value:     "ti",
+						Value:     "search_",
 					},
 				},
 			},
 			"Title (End with)": {
-				Expected: models.PaginationData[objects.Book]{
-					Page:       1,
-					TotalPages: 1,
-					Data:       []objects.Book{bookA, bookC},
+				Validate: func(s *BooksModelTestSuite, result models.PaginationData[objects.Book]) {
+					s.Equal(1, result.Page)
+					s.EqualValues(1, result.TotalPages)
+					s.EqualValues([]objects.Book{bookA, bookC}, result.Data)
 				},
 				Option: SearchOption{
 					CurrentPage: 1,
 					Title: models.MatchOption{
 						MatchType: models.EndWithMatchType,
-						Value:     "a",
+						Value:     "a_title",
+					},
+				},
+			},
+			"Author (Equal)": {
+				Validate: func(s *BooksModelTestSuite, result models.PaginationData[objects.Book]) {
+					s.Equal(1, result.Page)
+					s.EqualValues(1, result.TotalPages)
+					s.EqualValues([]objects.Book{bookA, bookB}, result.Data)
+				},
+				Option: SearchOption{
+					CurrentPage: 1,
+					Author: models.MatchOption{
+						MatchType: models.EqualMatchType,
+						Value:     bookA.Author,
+					},
+				},
+			},
+			"Author (Partial)": {
+				Validate: func(s *BooksModelTestSuite, result models.PaginationData[objects.Book]) {
+					s.Equal(1, result.Page)
+					s.EqualValues(1, result.TotalPages)
+					s.EqualValues([]objects.Book{bookC}, result.Data)
+				},
+				Option: SearchOption{
+					CurrentPage: 1,
+					Author: models.MatchOption{
+						MatchType: models.PartialMatchType,
+						Value:     "search_b",
+					},
+				},
+			},
+			"Author (Start with)": {
+				Validate: func(s *BooksModelTestSuite, result models.PaginationData[objects.Book]) {
+					s.Equal(1, result.Page)
+					s.EqualValues(2, result.TotalPages)
+					s.EqualValues(sortedBooks[0:2], result.Data)
+				},
+				Option: SearchOption{
+					CurrentPage: 1,
+					Author: models.MatchOption{
+						MatchType: models.StartWithMatchType,
+						Value:     "search_",
+					},
+				},
+			},
+			"Author (End with)": {
+				Validate: func(s *BooksModelTestSuite, result models.PaginationData[objects.Book]) {
+					s.Equal(1, result.Page)
+					s.EqualValues(1, result.TotalPages)
+					s.EqualValues([]objects.Book{bookA, bookB}, result.Data)
+				},
+				Option: SearchOption{
+					CurrentPage: 1,
+					Author: models.MatchOption{
+						MatchType: models.EndWithMatchType,
+						Value:     "a_author",
 					},
 				},
 			},
@@ -282,7 +343,8 @@ func (s *BooksModelTestSuite) TestSearch() {
 
 				paginationData, err := s.model.Search(testCase.Option)
 				s.Require().NoError(err, "Searching book failed")
-				s.Require().EqualValues(testCase.Expected, paginationData)
+
+				testCase.Validate(s, paginationData)
 			})
 		}
 	})

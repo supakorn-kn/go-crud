@@ -55,12 +55,11 @@ func (m BaseModel[T]) Insert(item T) error {
 	_, err := m.Coll.InsertOne(context.Background(), item)
 	if err != nil {
 
-		switch true {
-		case mongo.IsDuplicateKeyError(err):
+		if mongo.IsDuplicateKeyError(err) {
 			return serverError.DuplicatedObjectIDError.New(item.GetID())
-		default:
-			return err
 		}
+
+		return err
 	}
 
 	return nil
@@ -71,10 +70,9 @@ func (m BaseModel[T]) GetByID(itemID string) (item T, err error) {
 	result := m.Coll.FindOne(context.Background(), bson.D{{Key: m.ItemIDKey, Value: itemID}})
 
 	err = result.Decode(&item)
-	switch err {
-
-	case mongo.ErrNoDocuments:
+	if errors.Is(err, mongo.ErrNoDocuments) {
 		err = serverError.ObjectIDNotFoundError.New(itemID)
+		return
 	}
 
 	return
@@ -88,16 +86,15 @@ func (m BaseModel[T]) Search(opt BaseSearchOption) (paginationData PaginationDat
 		return
 	}
 
-	cur, err := m.Coll.Aggregate(context.Background(), opt.Pipeline)
-	if err != nil {
-		paginateErr = err
+	var cur *mongo.Cursor
+	cur, paginateErr = m.Coll.Aggregate(context.Background(), opt.Pipeline)
+	if paginateErr != nil {
 		return
 	}
 
 	var aggResultList []AggregatedResult[T]
-	err = cur.All(context.Background(), &aggResultList)
-	if err != nil {
-		paginateErr = err
+	paginateErr = cur.All(context.Background(), &aggResultList)
+	if paginateErr != nil {
 		return
 	}
 
@@ -146,14 +143,11 @@ func (m BaseModel[T]) Update(item T) error {
 	result := m.Coll.FindOneAndUpdate(context.Background(), filter, bson.D{{Key: "$set", Value: updateBson}})
 	if err := result.Err(); err != nil {
 
-		switch err {
-
-		case mongo.ErrNoDocuments:
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return serverError.ObjectIDNotFoundError.New(item.GetID())
-
-		default:
-			return err
 		}
+
+		return err
 	}
 
 	return nil
@@ -166,14 +160,11 @@ func (m BaseModel[T]) Delete(itemID string) error {
 	result := m.Coll.FindOneAndDelete(context.Background(), filter)
 	if err := result.Err(); err != nil {
 
-		switch err {
-
-		case mongo.ErrNoDocuments:
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return serverError.ObjectIDNotFoundError.New(itemID)
-
-		default:
-			return err
 		}
+
+		return err
 	}
 
 	return nil
