@@ -17,17 +17,6 @@ type AggregatedResult[T any] struct {
 
 type MatchType uint8
 
-// var matchTypeEnumStrings = [...]string{"Equal", "Partial", "Start with", "End with", "Contains in"}
-
-// func (enum MatchType) String() string {
-
-// 	if int(enum) >= len(matchTypeEnumStrings) {
-// 		return "invalid"
-// 	}
-
-// 	return matchTypeEnumStrings[enum]
-// }
-
 const (
 	EqualMatchType      MatchType = 0
 	PartialMatchType    MatchType = 1
