@@ -17,12 +17,12 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-type SearchOption struct {
-	CurrentPage int                `json:"current_page"`
-	UserID      string             `json:"user_id,omitempty"`
-	Username    models.MatchOption `json:"username,omitempty"`
-	AccountName models.MatchOption `json:"account_name,omitempty"`
-	Email       models.MatchOption `json:"email,omitempty"`
+type SearchOptions struct {
+	CurrentPage int                 `json:"current_page"`
+	UserID      string              `json:"user_id,omitempty"`
+	Username    models.MatchOptions `json:"username,omitempty"`
+	AccountName models.MatchOptions `json:"account_name,omitempty"`
+	Email       models.MatchOptions `json:"email,omitempty"`
 }
 
 type UsersModel struct {
@@ -117,8 +117,8 @@ func (m UsersModel) createCollection(conn *mongodb.MongoDBConn) (*mongo.Collecti
 			{Key: "validationLevel", Value: "strict"},
 		}
 
-		option := options.RunCmd()
-		result := crudDB.RunCommand(context.Background(), cmd, option)
+		options := options.RunCmd()
+		result := crudDB.RunCommand(context.Background(), cmd, options)
 		if err := result.Err(); err != nil {
 			return nil, err
 		}
@@ -126,11 +126,11 @@ func (m UsersModel) createCollection(conn *mongodb.MongoDBConn) (*mongo.Collecti
 		return conn.GetCollection(collectionName), nil
 	}
 
-	collectionOption := options.CreateCollection()
-	collectionOption.SetValidator(validator)
-	collectionOption.SetValidationLevel("strict")
+	collectionOptions := options.CreateCollection()
+	collectionOptions.SetValidator(validator)
+	collectionOptions.SetValidationLevel("strict")
 
-	err = crudDB.CreateCollection(context.Background(), collectionName, collectionOption)
+	err = crudDB.CreateCollection(context.Background(), collectionName, collectionOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -157,12 +157,12 @@ func (m UsersModel) createIndexes(coll *mongo.Collection) error {
 
 	if !contains {
 
-		indexModelOption := options.Index().SetName(userIDIndex).SetUnique(true)
+		indexModelOptions := options.Index().SetName(userIDIndex).SetUnique(true)
 		indexModel := mongo.IndexModel{
 			Keys: bson.D{
 				{Key: "user_id", Value: 1},
 			},
-			Options: indexModelOption,
+			Options: indexModelOptions,
 		}
 
 		_, err = coll.Indexes().CreateOne(context.Background(), indexModel)
@@ -177,12 +177,12 @@ func (m UsersModel) createIndexes(coll *mongo.Collection) error {
 
 	if !contains {
 
-		indexModelOption := options.Index().SetName(accountNameIndex).SetUnique(true)
+		indexModelOptions := options.Index().SetName(accountNameIndex).SetUnique(true)
 		indexModel := mongo.IndexModel{
 			Keys: bson.D{
 				{Key: "account_name", Value: 1},
 			},
-			Options: indexModelOption,
+			Options: indexModelOptions,
 		}
 
 		_, err = coll.Indexes().CreateOne(context.Background(), indexModel)
@@ -229,7 +229,7 @@ func (m UsersModel) Insert(user objects.User) error {
 	return m.BaseModel.Insert(user)
 }
 
-func (m UsersModel) Search(opt SearchOption) (paginationResult models.PaginationData[objects.User], paginationErr error) {
+func (m UsersModel) Search(opt SearchOptions) (paginationResult models.PaginationData[objects.User], paginationErr error) {
 
 	var builder = models.NewSearchPipelineBuilder()
 	builder.Skip((opt.CurrentPage - 1) * m.BaseModel.SearchLenLimit)
@@ -283,7 +283,7 @@ func (m UsersModel) Search(opt SearchOption) (paginationResult models.Pagination
 
 	pipeline := builder.BuildPipeline()
 
-	paginationResult, paginationErr = m.BaseModel.Search(models.BaseSearchOption{
+	paginationResult, paginationErr = m.BaseModel.Search(models.BaseSearchOptions{
 		CurrentPage: opt.CurrentPage,
 		Pipeline:    pipeline,
 	})
