@@ -32,6 +32,11 @@ func (e BaseError) Error() string {
 
 func (e *BaseError) New(args ...any) BaseError {
 
+	if args == nil {
+		e.Message = e.messageFormat
+		return *e
+	}
+
 	e.Message = fmt.Sprintf(e.messageFormat, args)
 	return *e
 }

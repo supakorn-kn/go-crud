@@ -47,15 +47,7 @@ func (s *UsersModelTestSuite) BeforeTest(suiteName, testName string) {
 	s.Require().NoError(s.model.Insert(s.insertedUser), "Setup test failed from inserting users")
 }
 
-func (s *UsersModelTestSuite) AfterTest(suiteName, testName string) {
-
-	_, err := s.model.Coll.DeleteMany(context.Background(), bson.D{})
-	s.Require().NoError(err)
-}
-
 func (s *UsersModelTestSuite) TearDownSuite() {
-
-	s.conn.GetDatabase().Drop(context.Background())
 	s.conn.Disconnect()
 }
 
