@@ -2,10 +2,13 @@ package users
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/brianvoe/gofakeit/v6"
 	"github.com/stretchr/testify/suite"
+	"github.com/supakorn-kn/go-crud/errors"
 	"github.com/supakorn-kn/go-crud/mongodb"
 	"github.com/supakorn-kn/go-crud/objects"
 	"go.mongodb.org/mongo-driver/bson"
@@ -22,10 +25,7 @@ func (s *UsersModelTestSuite) SetupSuite() {
 
 	//TODO: Will set parameter from env
 	conn := mongodb.New("mongodb://localhost:27017", "go-crud_test")
-	err := conn.Connect()
-	if err != nil {
-		s.FailNow("Create Mongodb connection failed", err)
-	}
+	s.Require().NoError(conn.Connect(), "Create Mongodb connection failed")
 
 	newModel, err := NewUsersModel(&conn)
 	if err != nil {
@@ -45,6 +45,15 @@ func (s *UsersModelTestSuite) BeforeTest(suiteName, testName string) {
 
 	s.insertedUser = fakeUser()
 	s.Require().NoError(s.model.Insert(s.insertedUser), "Setup test failed from inserting users")
+}
+
+func (s *UsersModelTestSuite) AfterTest(suiteName, testName string) {
+
+	if testName == "TestInsert" || testName == "TestSearch" || testName == "TestDelete" {
+		return
+	}
+
+	s.Require().NoError(s.model.Delete(s.insertedUser.UserID), "Clearing test failed from deleting users")
 }
 
 func (s *UsersModelTestSuite) TearDownSuite() {
@@ -145,51 +154,47 @@ func (s *UsersModelTestSuite) TestInsert() {
 	})
 }
 
-// func (s *UsersModelTestSuite) TestGetByID() {
+func (s *UsersModelTestSuite) TestGetByID() {
 
-// 	s.Run("Should get the user by user_id properly", func() {
+	s.Run("Should get the user by user_id properly", func() {
 
-// 		actual, err := s.model.GetByID(s.insertedUser.UserID)
-// 		s.Require().NoError(err, "Getting exist user failed")
-// 		s.Require().EqualValues(s.insertedUser, actual)
-// 	})
+		actual, err := s.model.GetByID(s.insertedUser.UserID)
+		s.Require().NoError(err, "Getting exist user failed")
+		s.Require().EqualValues(s.insertedUser, actual)
+	})
 
-// 	s.Run("Should throw the error when give non-exist user_id", func() {
+	s.Run("Should throw the error when give non-exist user_id", func() {
 
-// 		itemID := "non-exist_id"
+		itemID := "non-exist_id"
 
-// 		actual, err := s.model.GetByID(itemID)
-// 		s.Require().Empty(actual)
-// 		s.Require().ErrorIs(errors.ObjectIDNotFoundError.New(itemID), err, "Should throw error")
-// 	})
-// }
+		actual, err := s.model.GetByID(itemID)
+		s.Require().Empty(actual)
+		s.Require().ErrorIs(errors.ObjectIDNotFoundError.New(itemID), err, "Should throw error")
+	})
+}
 
 // func (s *UsersModelTestSuite) TestSearch() {
 
-// 	createPasswordFunc := func() string {
-// 		return gofakeit.Password(true, true, true, true, false, 10)
-// 	}
-
 // 	userA := objects.User{
 // 		UserID:      gofakeit.UUID(),
-// 		Username:    "username_a",
-// 		Password:    createPasswordFunc(),
+// 		Username:    "user_a",
+// 		Password:    "passwd_a",
 // 		AccountName: "User A",
 // 		Email:       "userA@example.com",
 // 	}
 
 // 	userB := objects.User{
 // 		UserID:      gofakeit.UUID(),
-// 		Username:    "username_b",
-// 		Password:    createPasswordFunc(),
+// 		Username:    "user_b",
+// 		Password:    "passwd_b",
 // 		AccountName: "User B",
 // 		Email:       "userB@example.com",
 // 	}
 
 // 	userC := objects.User{
 // 		UserID:      gofakeit.UUID(),
-// 		Username:    "username_c",
-// 		Password:    createPasswordFunc(),
+// 		Username:    "user_c",
+// 		Password:    "passwd_c",
 // 		AccountName: "User C",
 // 		Email:       "userC@example.com",
 // 	}
@@ -197,11 +202,19 @@ func (s *UsersModelTestSuite) TestInsert() {
 // 	var initialLimit = s.model.SearchLenLimit
 // 	s.model.SearchLenLimit = 2
 // 	s.T().Cleanup(func() {
+
 // 		s.model.SearchLenLimit = initialLimit
+
+// 		matchQuery := bson.D{{
+// 			Key:   s.model.ItemIDKey,
+// 			Value: bson.D{{Key: "$in", Value: bson.A{userA.UserID, userB.UserID, userC.UserID}}},
+// 		}}
+
+// 		_, err := s.model.Coll.DeleteMany(context.Background(), matchQuery)
+// 		s.NoError(err, "Clearing inserted users for searching failed")
 // 	})
 
 // 	users := []objects.User{userA, userB, userC}
-// 	gofakeit.ShuffleAnySlice(users)
 // 	for _, user := range users {
 // 		s.Require().NoError(s.model.Insert(user), "Insert users before testing failed")
 // 	}
@@ -219,7 +232,7 @@ func (s *UsersModelTestSuite) TestInsert() {
 
 // 		var testCases = map[string]struct {
 // 			Expected models.PaginationData[objects.User]
-// 			Option   SearchOption
+// 			Option   SearchOptions
 // 		}{
 // 			"None (Page 1)": {
 // 				Expected: models.PaginationData[objects.User]{
@@ -227,7 +240,7 @@ func (s *UsersModelTestSuite) TestInsert() {
 // 					TotalPages: 2,
 // 					Data:       users[:2],
 // 				},
-// 				Option: SearchOption{
+// 				Option: SearchOptions{
 // 					CurrentPage: 1,
 // 				},
 // 			},
@@ -237,7 +250,7 @@ func (s *UsersModelTestSuite) TestInsert() {
 // 					TotalPages: 2,
 // 					Data:       users[2:],
 // 				},
-// 				Option: SearchOption{
+// 				Option: SearchOptions{
 // 					CurrentPage: 2,
 // 				},
 // 			},
@@ -247,7 +260,7 @@ func (s *UsersModelTestSuite) TestInsert() {
 // 					TotalPages: 1,
 // 					Data:       []objects.User{userA},
 // 				},
-// 				Option: SearchOption{
+// 				Option: SearchOptions{
 // 					CurrentPage: 1,
 // 					UserID:      userA.UserID,
 // 				},
@@ -258,9 +271,9 @@ func (s *UsersModelTestSuite) TestInsert() {
 // 					TotalPages: 1,
 // 					Data:       []objects.User{userB},
 // 				},
-// 				Option: SearchOption{
+// 				Option: SearchOptions{
 // 					CurrentPage: 1,
-// 					Username: models.MatchOption{
+// 					Username: models.MatchOptions{
 // 						MatchType: models.EqualMatchType,
 // 						Value:     userB.Username,
 // 					},
@@ -272,9 +285,9 @@ func (s *UsersModelTestSuite) TestInsert() {
 // 					TotalPages: 2,
 // 					Data:       users[:2],
 // 				},
-// 				Option: SearchOption{
+// 				Option: SearchOptions{
 // 					CurrentPage: 1,
-// 					Username: models.MatchOption{
+// 					Username: models.MatchOptions{
 // 						MatchType: models.PartialMatchType,
 // 						Value:     "er",
 // 					},
@@ -286,9 +299,9 @@ func (s *UsersModelTestSuite) TestInsert() {
 // 					TotalPages: 2,
 // 					Data:       users[:2],
 // 				},
-// 				Option: SearchOption{
+// 				Option: SearchOptions{
 // 					CurrentPage: 1,
-// 					Username: models.MatchOption{
+// 					Username: models.MatchOptions{
 // 						MatchType: models.StartWithMatchType,
 // 						Value:     "us",
 // 					},
@@ -300,126 +313,126 @@ func (s *UsersModelTestSuite) TestInsert() {
 // 					TotalPages: 1,
 // 					Data:       []objects.User{userC},
 // 				},
-// 				Option: SearchOption{
+// 				Option: SearchOptions{
 // 					CurrentPage: 1,
-// 					Username: models.MatchOption{
+// 					Username: models.MatchOptions{
 // 						MatchType: models.EndWithMatchType,
 // 						Value:     "c",
 // 					},
 // 				},
 // 			},
-// 			// "Account name (Equal)": {
-// 			// 	Expected: models.PaginationData[objects.User]{
-// 			// 		Page:       1,
-// 			// 		TotalPages: 1,
-// 			// 		Data:       []objects.User{userB},
-// 			// 	},
-// 			// 	Option: SearchOption{
-// 			// 		CurrentPage: 1,
-// 			// 		AccountName: models.MatchOption{
-// 			// 			MatchType: models.EqualMatchType,
-// 			// 			Value:     userB.AccountName,
-// 			// 		},
-// 			// 	},
-// 			// },
-// 			// "Account name (Partial)": {
-// 			// 	Expected: models.PaginationData[objects.User]{
-// 			// 		Page:       1,
-// 			// 		TotalPages: 2,
-// 			// 		Data:       users[:2],
-// 			// 	},
-// 			// 	Option: SearchOption{
-// 			// 		CurrentPage: 1,
-// 			// 		AccountName: models.MatchOption{
-// 			// 			MatchType: models.PartialMatchType,
-// 			// 			Value:     "user",
-// 			// 		},
-// 			// 	},
-// 			// },
-// 			// "Account name (Start with)": {
-// 			// 	Expected: models.PaginationData[objects.User]{
-// 			// 		Page:       1,
-// 			// 		TotalPages: 2,
-// 			// 		Data:       users[:2],
-// 			// 	},
-// 			// 	Option: SearchOption{
-// 			// 		CurrentPage: 1,
-// 			// 		AccountName: models.MatchOption{
-// 			// 			MatchType: models.StartWithMatchType,
-// 			// 			Value:     "use",
-// 			// 		},
-// 			// 	},
-// 			// },
-// 			// "Account name (End with)": {
-// 			// 	Expected: models.PaginationData[objects.User]{
-// 			// 		Page:       1,
-// 			// 		TotalPages: 1,
-// 			// 		Data:       []objects.User{userA},
-// 			// 	},
-// 			// 	Option: SearchOption{
-// 			// 		CurrentPage: 1,
-// 			// 		AccountName: models.MatchOption{
-// 			// 			MatchType: models.EndWithMatchType,
-// 			// 			Value:     "a",
-// 			// 		},
-// 			// 	},
-// 			// },
-// 			// "Email (Equal)": {
-// 			// 	Expected: models.PaginationData[objects.User]{
-// 			// 		Page:       1,
-// 			// 		TotalPages: 1,
-// 			// 		Data:       []objects.User{userB},
-// 			// 	},
-// 			// 	Option: SearchOption{
-// 			// 		CurrentPage: 1,
-// 			// 		Email: models.MatchOption{
-// 			// 			MatchType: models.EqualMatchType,
-// 			// 			Value:     userB.Email,
-// 			// 		},
-// 			// 	},
-// 			// },
-// 			// "Email (Partial)": {
-// 			// 	Expected: models.PaginationData[objects.User]{
-// 			// 		Page:       1,
-// 			// 		TotalPages: 2,
-// 			// 		Data:       users[:2],
-// 			// 	},
-// 			// 	Option: SearchOption{
-// 			// 		CurrentPage: 1,
-// 			// 		Email: models.MatchOption{
-// 			// 			MatchType: models.PartialMatchType,
-// 			// 			Value:     "@",
-// 			// 		},
-// 			// 	},
-// 			// },
-// 			// "Email (Start with)": {
-// 			// 	Expected: models.PaginationData[objects.User]{
-// 			// 		Page:       1,
-// 			// 		TotalPages: 2,
-// 			// 		Data:       users[:2],
-// 			// 	},
-// 			// 	Option: SearchOption{
-// 			// 		CurrentPage: 1,
-// 			// 		Email: models.MatchOption{
-// 			// 			MatchType: models.StartWithMatchType,
-// 			// 			Value:     "use",
-// 			// 		},
-// 			// 	},
-// 			// },
-// 			// "Email (End with)": {
-// 			// 	Expected: models.PaginationData[objects.User]{
-// 			// 		Page:       1,
-// 			// 		TotalPages: 2,
-// 			// 		Data:       users[:2],
-// 			// 	},
-// 			// 	Option: SearchOption{
-// 			// 		CurrentPage: 1,
-// 			// 		Email: models.MatchOption{
-// 			// 			MatchType: models.EndWithMatchType,
-// 			// 			Value:     "m",
-// 			// 		},
-// 			// 	},
-// 			// },
+// 			"Account name (Equal)": {
+// 				Expected: models.PaginationData[objects.User]{
+// 					Page:       1,
+// 					TotalPages: 1,
+// 					Data:       []objects.User{userB},
+// 				},
+// 				Option: SearchOptions{
+// 					CurrentPage: 1,
+// 					AccountName: models.MatchOptions{
+// 						MatchType: models.EqualMatchType,
+// 						Value:     userB.AccountName,
+// 					},
+// 				},
+// 			},
+// 			"Account name (Partial)": {
+// 				Expected: models.PaginationData[objects.User]{
+// 					Page:       1,
+// 					TotalPages: 2,
+// 					Data:       users[:2],
+// 				},
+// 				Option: SearchOptions{
+// 					CurrentPage: 1,
+// 					AccountName: models.MatchOptions{
+// 						MatchType: models.PartialMatchType,
+// 						Value:     "user",
+// 					},
+// 				},
+// 			},
+// 			"Account name (Start with)": {
+// 				Expected: models.PaginationData[objects.User]{
+// 					Page:       1,
+// 					TotalPages: 2,
+// 					Data:       users[:2],
+// 				},
+// 				Option: SearchOptions{
+// 					CurrentPage: 1,
+// 					AccountName: models.MatchOptions{
+// 						MatchType: models.StartWithMatchType,
+// 						Value:     "use",
+// 					},
+// 				},
+// 			},
+// 			"Account name (End with)": {
+// 				Expected: models.PaginationData[objects.User]{
+// 					Page:       1,
+// 					TotalPages: 1,
+// 					Data:       []objects.User{userA},
+// 				},
+// 				Option: SearchOptions{
+// 					CurrentPage: 1,
+// 					AccountName: models.MatchOptions{
+// 						MatchType: models.EndWithMatchType,
+// 						Value:     "a",
+// 					},
+// 				},
+// 			},
+// 			"Email (Equal)": {
+// 				Expected: models.PaginationData[objects.User]{
+// 					Page:       1,
+// 					TotalPages: 1,
+// 					Data:       []objects.User{userB},
+// 				},
+// 				Option: SearchOptions{
+// 					CurrentPage: 1,
+// 					Email: models.MatchOptions{
+// 						MatchType: models.EqualMatchType,
+// 						Value:     userB.Email,
+// 					},
+// 				},
+// 			},
+// 			"Email (Partial)": {
+// 				Expected: models.PaginationData[objects.User]{
+// 					Page:       1,
+// 					TotalPages: 2,
+// 					Data:       users[:2],
+// 				},
+// 				Option: SearchOptions{
+// 					CurrentPage: 1,
+// 					Email: models.MatchOptions{
+// 						MatchType: models.PartialMatchType,
+// 						Value:     "@",
+// 					},
+// 				},
+// 			},
+// 			"Email (Start with)": {
+// 				Expected: models.PaginationData[objects.User]{
+// 					Page:       1,
+// 					TotalPages: 2,
+// 					Data:       users[:2],
+// 				},
+// 				Option: SearchOptions{
+// 					CurrentPage: 1,
+// 					Email: models.MatchOptions{
+// 						MatchType: models.StartWithMatchType,
+// 						Value:     "use",
+// 					},
+// 				},
+// 			},
+// 			"Email (End with)": {
+// 				Expected: models.PaginationData[objects.User]{
+// 					Page:       1,
+// 					TotalPages: 2,
+// 					Data:       users[:2],
+// 				},
+// 				Option: SearchOptions{
+// 					CurrentPage: 1,
+// 					Email: models.MatchOptions{
+// 						MatchType: models.EndWithMatchType,
+// 						Value:     "m",
+// 					},
+// 				},
+// 			},
 // 		}
 
 // 		for optionName, testCase := range testCases {
@@ -437,7 +450,7 @@ func (s *UsersModelTestSuite) TestInsert() {
 
 // 	s.Run("Should throw error when set current page as non-positive value", func() {
 
-// 		result, err := s.model.Search(SearchOption{CurrentPage: 0})
+// 		result, err := s.model.Search(SearchOptions{CurrentPage: 0})
 // 		s.Require().ErrorIs(errors.CurrentPageInvalidError.New(), err, "Should have returned error")
 // 		s.Require().Empty(result)
 // 	})
@@ -445,9 +458,9 @@ func (s *UsersModelTestSuite) TestInsert() {
 // 	s.Run("Should throw error when set invalid or unsupported match type", func() {
 
 // 		result, err := s.model.Search(
-// 			SearchOption{
+// 			SearchOptions{
 // 				CurrentPage: 1,
-// 				Username: models.MatchOption{
+// 				Username: models.MatchOptions{
 // 					MatchType: 255,
 // 				},
 // 			},
@@ -458,76 +471,76 @@ func (s *UsersModelTestSuite) TestInsert() {
 
 // }
 
-// func (s *UsersModelTestSuite) TestUpdate() {
+func (s *UsersModelTestSuite) TestUpdate() {
 
-// 	s.Run("Should update exist user properly", func() {
+	s.Run("Should update exist user properly", func() {
 
-// 		userToUpdate := fakeUser()
-// 		userToUpdate.UserID = s.insertedUser.UserID
+		userToUpdate := fakeUser()
+		userToUpdate.UserID = s.insertedUser.UserID
 
-// 		s.Require().NoError(s.model.Update(userToUpdate))
+		s.Require().NoError(s.model.Update(userToUpdate))
 
-// 		s.T().Cleanup(func() {
-// 			s.Require().NoError(s.model.Update(s.insertedUser))
-// 		})
+		s.T().Cleanup(func() {
+			s.Require().NoError(s.model.Update(s.insertedUser))
+		})
 
-// 		actual, err := s.model.GetByID(userToUpdate.UserID)
-// 		s.Require().NoError(err, "Getting updated user failed")
-// 		s.Require().EqualValues(userToUpdate, actual)
-// 	})
+		actual, err := s.model.GetByID(userToUpdate.UserID)
+		s.Require().NoError(err, "Getting updated user failed")
+		s.Require().EqualValues(userToUpdate, actual)
+	})
 
-// 	s.Run("Should update partial data in user properly", func() {
+	s.Run("Should update partial data in user properly", func() {
 
-// 		mockUser := fakeUser()
+		mockUser := fakeUser()
 
-// 		var userToUpdate = objects.User{
-// 			UserID:   s.insertedUser.UserID,
-// 			Password: mockUser.Password,
-// 			Email:    mockUser.Email,
-// 		}
+		var userToUpdate = objects.User{
+			UserID:   s.insertedUser.UserID,
+			Password: mockUser.Password,
+			Email:    mockUser.Email,
+		}
 
-// 		s.Require().NoError(s.model.Update(userToUpdate))
+		s.Require().NoError(s.model.Update(userToUpdate))
 
-// 		s.T().Cleanup(func() {
-// 			s.Require().NoError(s.model.Update(s.insertedUser))
-// 		})
+		s.T().Cleanup(func() {
+			s.Require().NoError(s.model.Update(s.insertedUser))
+		})
 
-// 		expected := s.insertedUser
-// 		expected.Password = userToUpdate.Password
-// 		expected.Email = userToUpdate.Email
+		expected := s.insertedUser
+		expected.Password = userToUpdate.Password
+		expected.Email = userToUpdate.Email
 
-// 		actual, err := s.model.GetByID(expected.UserID)
-// 		s.Require().NoError(err, "Getting updated user failed")
-// 		s.Require().EqualValues(expected, actual)
-// 	})
+		actual, err := s.model.GetByID(expected.UserID)
+		s.Require().NoError(err, "Getting updated user failed")
+		s.Require().EqualValues(expected, actual)
+	})
 
-// 	s.Run("Should throw error when update non-exist user", func() {
+	s.Run("Should throw error when update non-exist user", func() {
 
-// 		userToUpdate := fakeUser()
-// 		s.Require().Error(s.model.Update(userToUpdate))
+		userToUpdate := fakeUser()
+		s.Require().Error(s.model.Update(userToUpdate))
 
-// 		actual, err := s.model.GetByID(s.insertedUser.UserID)
-// 		s.Require().NoError(err, "Getting updated user failed")
-// 		s.Require().EqualValues(s.insertedUser, actual)
-// 	})
-// }
+		actual, err := s.model.GetByID(s.insertedUser.UserID)
+		s.Require().NoError(err, "Getting updated user failed")
+		s.Require().EqualValues(s.insertedUser, actual)
+	})
+}
 
-// func (s *UsersModelTestSuite) TestDelete() {
+func (s *UsersModelTestSuite) TestDelete() {
 
-// 	s.Run("Should delete exist user properly", func() {
+	s.Run("Should delete exist user properly", func() {
 
-// 		s.Require().NoError(s.model.Delete(s.insertedUser.UserID))
+		s.Require().NoError(s.model.Delete(s.insertedUser.UserID))
 
-// 		actual, err := s.model.GetByID(s.insertedUser.UserID)
-// 		s.Require().Error(err, "Should throw error after getting deleted user")
-// 		s.Require().Empty(actual, "The user should have been empty")
-// 	})
+		actual, err := s.model.GetByID(s.insertedUser.UserID)
+		s.Require().Error(err, "Should throw error after getting deleted user")
+		s.Require().Empty(actual, "The user should have been empty")
+	})
 
-// 	s.Run("Should throw error when delete non-exist user", func() {
+	s.Run("Should throw error when delete non-exist user", func() {
 
-// 		s.Require().Error(s.model.Delete("invalid_user_id"), "Delete exist user failed")
-// 	})
-// }
+		s.Require().Error(s.model.Delete("invalid_user_id"), "Delete exist user failed")
+	})
+}
 
 func TestUsersModel(t *testing.T) {
 
@@ -536,11 +549,13 @@ func TestUsersModel(t *testing.T) {
 
 func fakeUser() objects.User {
 
+	now := time.Now().UnixMilli()
+
 	return objects.User{
 		UserID:      gofakeit.UUID(),
-		Username:    gofakeit.Username(),
-		Password:    gofakeit.Password(true, true, true, true, false, 10),
-		AccountName: gofakeit.FirstName(),
-		Email:       gofakeit.Email(),
+		Username:    fmt.Sprintf("username_%d", now),
+		Password:    fmt.Sprintf("password_%d", now),
+		AccountName: fmt.Sprintf("acct_%d", now),
+		Email:       fmt.Sprintf("mail_%d@example.com", now),
 	}
 }

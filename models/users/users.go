@@ -3,7 +3,6 @@ package users
 import (
 	"context"
 	"errors"
-	"fmt"
 	"slices"
 	"strings"
 
@@ -202,8 +201,7 @@ func (m UsersModel) Insert(user objects.User) error {
 		strings.EqualFold(user.AccountName, "") ||
 		strings.EqualFold(user.Email, "") {
 
-		//TODO: Add validation failed
-		return errors.New(";w;")
+		return serverError.DataValidationFailedError.New()
 	}
 
 	filter := bson.D{
@@ -243,8 +241,6 @@ func (m UsersModel) Search(opt SearchOptions) (paginationResult models.Paginatio
 
 	if !strings.EqualFold(opt.UserID, "") {
 
-		fmt.Println("Set user_id")
-
 		paginationErr = builder.Match("user_id", opt.UserID, models.EqualMatchType)
 		if paginationErr != nil {
 			return
@@ -252,8 +248,6 @@ func (m UsersModel) Search(opt SearchOptions) (paginationResult models.Paginatio
 	}
 
 	if !opt.AccountName.IsNil() {
-
-		fmt.Println("Set account_name")
 
 		paginationErr = builder.Match("account_name", opt.AccountName.Value, opt.AccountName.MatchType)
 		if paginationErr != nil {
@@ -263,8 +257,6 @@ func (m UsersModel) Search(opt SearchOptions) (paginationResult models.Paginatio
 
 	if !opt.Username.IsNil() {
 
-		fmt.Println("Set username")
-
 		paginationErr = builder.Match("username", opt.Username.Value, opt.Username.MatchType)
 		if paginationErr != nil {
 			return
@@ -272,8 +264,6 @@ func (m UsersModel) Search(opt SearchOptions) (paginationResult models.Paginatio
 	}
 
 	if !opt.Email.IsNil() {
-
-		fmt.Println("Set email")
 
 		paginationErr = builder.Match("email", opt.Email.Value, opt.Email.MatchType)
 		if paginationErr != nil {
