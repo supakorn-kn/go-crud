@@ -30,16 +30,13 @@ type BooksAPISuite struct {
 func (s *BooksAPISuite) SetupSuite() {
 
 	conn := mongodb.New("mongodb://localhost:27017", "go-crud_test")
-	err := conn.Connect()
-	if err != nil {
-		s.Require().Fail("Create MongoDB connection failed", err)
-	}
+	s.Require().NoError(conn.Connect(), "Create MongoDB connection failed")
 
 	s.conn = conn
 	api, err := NewBooksAPI(&conn)
 	if err != nil {
 		s.conn.Disconnect()
-		s.Require().Fail("Create books API failed", err)
+		s.FailNow("Create books API failed", err)
 	}
 
 	g := gin.Default()
@@ -55,7 +52,7 @@ func (s *BooksAPISuite) BeforeTest(suiteName, testName string) {
 		return
 	}
 
-	book := fakeBook()
+	book := mockBook()
 	s.Require().NoError(s.api.model.Insert(book), "Inserting book before testing failed")
 
 	s.createdBook = book
@@ -63,7 +60,7 @@ func (s *BooksAPISuite) BeforeTest(suiteName, testName string) {
 
 func (s *BooksAPISuite) AfterTest(suiteName, testName string) {
 
-	if testName == "TestCreate" || testName == "TestDelete" || testName == "TestRead" {
+	if testName == "TestDelete" {
 		return
 	}
 
@@ -76,7 +73,8 @@ func (s *BooksAPISuite) TearDownSuite() {
 
 func (s *BooksAPISuite) TestCreate() {
 
-	book := fakeBook()
+	book := mockBook()
+	s.createdBook = book
 
 	createBookFunc := func(book objects.Book) *httptest.ResponseRecorder {
 
@@ -104,7 +102,7 @@ func (s *BooksAPISuite) TestCreate() {
 
 	s.Run("Should throw error when create book using incomplete filled book data", func() {
 
-		newBook := fakeBook()
+		newBook := mockBook()
 		newBook.Title = ""
 
 		recorder := createBookFunc(newBook)
@@ -139,9 +137,7 @@ func (s *BooksAPISuite) TestRead() {
 	}
 	s.Require().NoError(s.api.model.Insert(book), "Inserting book before testing failed")
 
-	s.T().Cleanup(func() {
-		s.Require().NoError(s.api.model.Delete(book.BookID))
-	})
+	s.createdBook = book
 
 	s.Run("Should read book properly", func() {
 
@@ -171,6 +167,7 @@ func (s *BooksAPISuite) TestRead() {
 			Result: models.PaginationData[objects.Book]{
 				Page:       1,
 				TotalPages: 1,
+				Count:      1,
 				Data:       []objects.Book{book},
 			},
 		})
@@ -284,7 +281,7 @@ func (s *BooksAPISuite) TestUpdate() {
 
 	s.Run("Should update book properly", func() {
 
-		book := fakeBook()
+		book := mockBook()
 		book.BookID = s.createdBook.BookID
 
 		b, err := json.Marshal(book)
@@ -301,7 +298,7 @@ func (s *BooksAPISuite) TestUpdate() {
 
 	s.Run("Should throw error when user give invalid book ID", func() {
 
-		book := fakeBook()
+		book := mockBook()
 
 		b, err := json.Marshal(book)
 		s.Require().NoError(err)
@@ -338,7 +335,7 @@ func (s *BooksAPISuite) TestDelete() {
 
 	s.Run("Should throw error when user give invalid book ID", func() {
 
-		book := fakeBook()
+		book := mockBook()
 
 		b, err := json.Marshal(book)
 		s.Require().NoError(err)
@@ -361,12 +358,12 @@ func TestBooksAPI(t *testing.T) {
 	suite.Run(t, new(BooksAPISuite))
 }
 
-func fakeBook() objects.Book {
+func mockBook() objects.Book {
 
 	fakeInfo := gofakeit.Book()
 
 	return objects.Book{
-		BookID:      gofakeit.UUID(),
+		BookID:      fmt.Sprintf("book_%s", gofakeit.UUID()),
 		Title:       fakeInfo.Title,
 		Author:      fakeInfo.Author,
 		Description: gofakeit.SentenceSimple(),

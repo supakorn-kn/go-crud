@@ -16,6 +16,7 @@ type Item interface {
 type PaginationData[Data Item] struct {
 	Page       int    `json:"page"`
 	TotalPages int    `json:"total_pages"`
+	Count      int    `json:"count"`
 	Data       []Data `json:"data"`
 }
 
@@ -106,9 +107,10 @@ func (m BaseModel[T]) Search(opt BaseSearchOptions) (paginationData PaginationDa
 	}
 
 	paginationData = PaginationData[T]{
-		Data:       aggResult.Data,
 		Page:       currentPage,
 		TotalPages: totalPages,
+		Count:      aggResult.Total,
+		Data:       aggResult.Data,
 	}
 
 	return
