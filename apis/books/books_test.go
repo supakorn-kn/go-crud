@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/brianvoe/gofakeit/v6"
 	"github.com/gin-gonic/gin"
@@ -52,7 +51,7 @@ func (s *BooksAPISuite) SetupSuite() {
 
 func (s *BooksAPISuite) BeforeTest(suiteName, testName string) {
 
-	if testName == "TestCreate" {
+	if testName == "TestCreate" || testName == "TestRead" {
 		return
 	}
 
@@ -64,7 +63,7 @@ func (s *BooksAPISuite) BeforeTest(suiteName, testName string) {
 
 func (s *BooksAPISuite) AfterTest(suiteName, testName string) {
 
-	if testName == "TestCreate" || testName == "TestDelete" {
+	if testName == "TestCreate" || testName == "TestDelete" || testName == "TestRead" {
 		return
 	}
 
@@ -131,21 +130,34 @@ func (s *BooksAPISuite) TestCreate() {
 
 func (s *BooksAPISuite) TestRead() {
 
-	s.Run("Should create book properly", func() {
+	book := objects.Book{
+		BookID:      "book_for_test_read",
+		Title:       "test_read_title",
+		Author:      "test_read_author",
+		Description: "test_read_description",
+		Categories:  []string{"test_read_category"},
+	}
+	s.Require().NoError(s.api.model.Insert(book), "Inserting book before testing failed")
 
-		searchOption := books.SearchOption{
+	s.T().Cleanup(func() {
+		s.Require().NoError(s.api.model.Delete(book.BookID))
+	})
+
+	s.Run("Should read book properly", func() {
+
+		searchOptions := books.SearchOptions{
 			CurrentPage: 1,
-			Title: models.MatchOption{
+			Title: models.MatchOptions{
 				MatchType: 0,
-				Value:     s.createdBook.Title,
+				Value:     book.Title,
 			},
-			Author: models.MatchOption{
+			Author: models.MatchOptions{
 				MatchType: 0,
-				Value:     s.createdBook.Author,
+				Value:     book.Author,
 			},
 		}
 
-		b, err := json.Marshal(searchOption)
+		b, err := json.Marshal(searchOptions)
 		s.Require().NoError(err)
 
 		recorder := httptest.NewRecorder()
@@ -159,16 +171,14 @@ func (s *BooksAPISuite) TestRead() {
 			Result: models.PaginationData[objects.Book]{
 				Page:       1,
 				TotalPages: 1,
-				Data:       []objects.Book{s.createdBook},
+				Data:       []objects.Book{book},
 			},
 		})
 
-		var resp apis.CRUDResponse
-		s.Empty(resp.Error)
 		s.JSONEq(string(expected), recorder.Body.String())
 	})
 
-	s.Run("Should throw error when user does not give search option", func() {
+	s.Run("Should throw error when user does not give search options", func() {
 
 		recorder := httptest.NewRecorder()
 		req, _ := http.NewRequest(http.MethodGet, "/api/books", nil)
@@ -185,14 +195,14 @@ func (s *BooksAPISuite) TestRead() {
 
 	s.Run("Should throw error when user give impossible match type value (out of uint8 range)", func() {
 
-		searchOption := map[string]any{
+		searchOptions := map[string]any{
 			"current_page": 1,
 			"title": map[string]any{
 				"match_type": -1,
-				"value":      s.createdBook.Title,
+				"value":      book.Title,
 			},
 		}
-		b, err := json.Marshal(searchOption)
+		b, err := json.Marshal(searchOptions)
 		s.Require().NoError(err)
 
 		recorder := httptest.NewRecorder()
@@ -208,10 +218,16 @@ func (s *BooksAPISuite) TestRead() {
 		s.Empty(resp.Result)
 	})
 
-	s.Run("Should throw error when user does not fill current page (current page = 0) in search option", func() {
+	s.Run("Should throw error when user does not fill current page (current page = 0) in search options", func() {
 
-		searchOption := books.SearchOption{}
-		b, err := json.Marshal(searchOption)
+		searchOptions := books.SearchOptions{
+			CurrentPage: 0,
+			Title: models.MatchOptions{
+				MatchType: 0,
+				Value:     book.Title,
+			},
+		}
+		b, err := json.Marshal(searchOptions)
 		s.Require().NoError(err)
 
 		recorder := httptest.NewRecorder()
@@ -349,10 +365,8 @@ func fakeBook() objects.Book {
 
 	fakeInfo := gofakeit.Book()
 
-	now := time.Now()
-
 	return objects.Book{
-		BookID:      "book_" + fmt.Sprintf("%d", now.UnixNano()),
+		BookID:      gofakeit.UUID(),
 		Title:       fakeInfo.Title,
 		Author:      fakeInfo.Author,
 		Description: gofakeit.SentenceSimple(),

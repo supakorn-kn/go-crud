@@ -53,7 +53,7 @@ func (api BooksCrudAPI) ReadOne(itemID string, ctx *gin.Context) (*objects.Book,
 
 func (api BooksCrudAPI) Read(ctx *gin.Context) (*models.PaginationData[objects.Book], error) {
 
-	var opt books.SearchOption
+	var opt books.SearchOptions
 	err := ctx.BindJSON(&opt)
 	if err != nil {
 		return nil, err
