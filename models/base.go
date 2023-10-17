@@ -37,13 +37,13 @@ type BaseModel[item Item] struct {
 	ItemIDKey string
 }
 
-func (m *BaseModel[T]) Inject(conn *mongo.Collection, searchLenLimit int, itemIDKey string) error {
+func (m *BaseModel[T]) Inject(coll *mongo.Collection, searchLenLimit int, itemIDKey string) error {
 
 	if searchLenLimit < 1 {
 		return errors.New("PaginateSize value can be only positive integer")
 	}
 
-	m.Coll = conn
+	m.Coll = coll
 	m.SearchLenLimit = searchLenLimit
 	m.ItemIDKey = itemIDKey
 
@@ -78,7 +78,7 @@ func (m BaseModel[T]) GetByID(itemID string) (item T, err error) {
 	return
 }
 
-func (m BaseModel[T]) Search(opt BaseSearchOption) (paginationData PaginationData[T], paginateErr error) {
+func (m BaseModel[T]) Search(opt BaseSearchOptions) (paginationData PaginationData[T], paginateErr error) {
 
 	var currentPage = opt.CurrentPage
 	if currentPage < 1 {

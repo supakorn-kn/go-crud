@@ -182,7 +182,16 @@ func (s *BooksModelTestSuite) TestSearch() {
 	s.model.SearchLenLimit = 2
 
 	s.T().Cleanup(func() {
+
 		s.model.SearchLenLimit = initialLimit
+
+		matchQuery := bson.D{{
+			Key:   s.model.ItemIDKey,
+			Value: bson.D{{Key: "$in", Value: bson.A{bookA.BookID, bookB.BookID, bookC.BookID}}},
+		}}
+
+		_, err := s.model.Coll.DeleteMany(context.Background(), matchQuery)
+		s.NoError(err, "Clearing inserted books for searching failed")
 	})
 
 	totalDocumentsCount, err := s.model.Coll.CountDocuments(context.Background(), bson.D{})
@@ -196,7 +205,7 @@ func (s *BooksModelTestSuite) TestSearch() {
 
 		var testCases = map[string]struct {
 			Validate func(*BooksModelTestSuite, models.PaginationData[objects.Book])
-			Option   SearchOption
+			Options  SearchOptions
 		}{
 			"None (Page 1)": {
 				Validate: func(s *BooksModelTestSuite, result models.PaginationData[objects.Book]) {
@@ -205,7 +214,7 @@ func (s *BooksModelTestSuite) TestSearch() {
 					s.EqualValues(totalAllDocumentsPage, result.TotalPages)
 					s.Len(result.Data, 2)
 				},
-				Option: SearchOption{
+				Options: SearchOptions{
 					CurrentPage: 1,
 				},
 			},
@@ -219,7 +228,7 @@ func (s *BooksModelTestSuite) TestSearch() {
 					s.GreaterOrEqual(dataLen, 1)
 					s.Less(dataLen, 3)
 				},
-				Option: SearchOption{
+				Options: SearchOptions{
 					CurrentPage: 2,
 				},
 			},
@@ -229,9 +238,9 @@ func (s *BooksModelTestSuite) TestSearch() {
 					s.EqualValues(1, result.TotalPages)
 					s.EqualValues([]objects.Book{bookA, bookC}, result.Data)
 				},
-				Option: SearchOption{
+				Options: SearchOptions{
 					CurrentPage: 1,
-					Title: models.MatchOption{
+					Title: models.MatchOptions{
 						MatchType: models.EqualMatchType,
 						Value:     bookA.Title,
 					},
@@ -243,9 +252,9 @@ func (s *BooksModelTestSuite) TestSearch() {
 					s.EqualValues(1, result.TotalPages)
 					s.EqualValues([]objects.Book{bookB}, result.Data)
 				},
-				Option: SearchOption{
+				Options: SearchOptions{
 					CurrentPage: 1,
-					Title: models.MatchOption{
+					Title: models.MatchOptions{
 						MatchType: models.PartialMatchType,
 						Value:     "search_b",
 					},
@@ -257,9 +266,9 @@ func (s *BooksModelTestSuite) TestSearch() {
 					s.EqualValues(2, result.TotalPages)
 					s.EqualValues(sortedBooks[0:2], result.Data)
 				},
-				Option: SearchOption{
+				Options: SearchOptions{
 					CurrentPage: 1,
-					Title: models.MatchOption{
+					Title: models.MatchOptions{
 						MatchType: models.StartWithMatchType,
 						Value:     "search_",
 					},
@@ -271,9 +280,9 @@ func (s *BooksModelTestSuite) TestSearch() {
 					s.EqualValues(1, result.TotalPages)
 					s.EqualValues([]objects.Book{bookA, bookC}, result.Data)
 				},
-				Option: SearchOption{
+				Options: SearchOptions{
 					CurrentPage: 1,
-					Title: models.MatchOption{
+					Title: models.MatchOptions{
 						MatchType: models.EndWithMatchType,
 						Value:     "a_title",
 					},
@@ -285,9 +294,9 @@ func (s *BooksModelTestSuite) TestSearch() {
 					s.EqualValues(1, result.TotalPages)
 					s.EqualValues([]objects.Book{bookA, bookB}, result.Data)
 				},
-				Option: SearchOption{
+				Options: SearchOptions{
 					CurrentPage: 1,
-					Author: models.MatchOption{
+					Author: models.MatchOptions{
 						MatchType: models.EqualMatchType,
 						Value:     bookA.Author,
 					},
@@ -299,9 +308,9 @@ func (s *BooksModelTestSuite) TestSearch() {
 					s.EqualValues(1, result.TotalPages)
 					s.EqualValues([]objects.Book{bookC}, result.Data)
 				},
-				Option: SearchOption{
+				Options: SearchOptions{
 					CurrentPage: 1,
-					Author: models.MatchOption{
+					Author: models.MatchOptions{
 						MatchType: models.PartialMatchType,
 						Value:     "search_b",
 					},
@@ -313,9 +322,9 @@ func (s *BooksModelTestSuite) TestSearch() {
 					s.EqualValues(2, result.TotalPages)
 					s.EqualValues(sortedBooks[0:2], result.Data)
 				},
-				Option: SearchOption{
+				Options: SearchOptions{
 					CurrentPage: 1,
-					Author: models.MatchOption{
+					Author: models.MatchOptions{
 						MatchType: models.StartWithMatchType,
 						Value:     "search_",
 					},
@@ -327,21 +336,32 @@ func (s *BooksModelTestSuite) TestSearch() {
 					s.EqualValues(1, result.TotalPages)
 					s.EqualValues([]objects.Book{bookA, bookB}, result.Data)
 				},
-				Option: SearchOption{
+				Options: SearchOptions{
 					CurrentPage: 1,
-					Author: models.MatchOption{
+					Author: models.MatchOptions{
 						MatchType: models.EndWithMatchType,
 						Value:     "a_author",
 					},
 				},
 			},
+			"Categories": {
+				Validate: func(s *BooksModelTestSuite, result models.PaginationData[objects.Book]) {
+					s.Equal(1, result.Page)
+					s.EqualValues(1, result.TotalPages)
+					s.EqualValues([]objects.Book{bookA, bookC}, result.Data)
+				},
+				Options: SearchOptions{
+					CurrentPage: 1,
+					Categories:  []string{bookA.Categories[0]},
+				},
+			},
 		}
 
-		for optionName, testCase := range testCases {
+		for optionsName, testCase := range testCases {
 
-			s.Run(fmt.Sprintf("Search with option %s", optionName), func() {
+			s.Run(fmt.Sprintf("Search with options %s", optionsName), func() {
 
-				paginationData, err := s.model.Search(testCase.Option)
+				paginationData, err := s.model.Search(testCase.Options)
 				s.Require().NoError(err, "Searching book failed")
 
 				testCase.Validate(s, paginationData)
@@ -351,7 +371,7 @@ func (s *BooksModelTestSuite) TestSearch() {
 
 	s.Run("Should throw error when set current page as non-positive value", func() {
 
-		result, err := s.model.Search(SearchOption{CurrentPage: 0})
+		result, err := s.model.Search(SearchOptions{CurrentPage: 0})
 		s.Require().Equal(errors.CurrentPageInvalidError.New(), err, "Should have returned error")
 		s.Require().Empty(result)
 	})
@@ -359,9 +379,9 @@ func (s *BooksModelTestSuite) TestSearch() {
 	s.Run("Should throw error when set invalid or unsupported match type", func() {
 
 		result, err := s.model.Search(
-			SearchOption{
+			SearchOptions{
 				CurrentPage: 1,
-				Title: models.MatchOption{
+				Title: models.MatchOptions{
 					MatchType: 255,
 				},
 			},
