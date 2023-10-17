@@ -3,7 +3,6 @@ package books
 import (
 	"context"
 	"fmt"
-	"slices"
 	"testing"
 
 	"github.com/brianvoe/gofakeit/v6"
@@ -44,11 +43,20 @@ func (s *BooksModelTestSuite) BeforeTest(suiteName, testName string) {
 		return
 	}
 
-	s.insertedBook = fakeBook()
+	s.insertedBook = mockBook()
 	s.Require().NoError(s.model.Insert(s.insertedBook), "Setup test failed from inserting book")
 
 	_, err := s.model.GetByID(s.insertedBook.BookID)
 	s.Require().NoError(err, "Setup test failed from inserting book")
+}
+
+func (s *BooksModelTestSuite) AfterTest(suiteName, testName string) {
+
+	if testName == "TestSearch" || testName == "TestDelete" {
+		return
+	}
+
+	s.Require().NoError(s.model.Delete(s.insertedBook.BookID), "Clearing test failed from deleting book")
 }
 
 func (s *BooksModelTestSuite) TearDownSuite() {
@@ -59,42 +67,43 @@ func (s *BooksModelTestSuite) TestInsert() {
 
 	s.Run("Should insert valid book properly", func() {
 
-		book := fakeBook()
+		book := mockBook()
 
-		err := s.model.Insert(book)
-		s.Require().NoError(err, "Inserting Book failed")
+		s.Require().NoError(s.model.Insert(book), "Inserting Book failed")
 
 		result := s.model.Coll.FindOne(context.Background(), bson.D{{Key: "book_id", Value: book.BookID}})
 
 		var actual objects.Book
 		s.Require().NoError(result.Decode(&actual), "Unmarshalling inserted Book failed")
 		s.Require().EqualValues(book, actual, "Read data is not the same as inserted")
+
+		s.insertedBook = book
 	})
 
 	s.Run("Should throw error when insert book with existed book ID", func() {
 
-		book := fakeBook()
+		book := mockBook()
+		s.Require().NoError(s.model.Insert(book), "Inserting Book failed")
 
-		err := s.model.Insert(book)
-		s.Require().NoError(err, "Inserting Book failed")
+		s.T().Cleanup(func() {
+			s.Require().NoError(s.model.Delete(book.BookID), "Clearing test failed from deleting book")
+		})
 
-		newBook := fakeBook()
+		newBook := mockBook()
 		newBook.BookID = book.BookID
-		err = s.model.Insert(newBook)
-		s.Require().Error(err, "Should have thrown errorr")
+		s.Require().Error(s.model.Insert(newBook), "Should have thrown errorr")
 	})
 
 	s.Run("Should throw error when insert invalid book data", func() {
 
-		book := fakeBook()
+		book := mockBook()
 
 		s.Run("Use empty book ID", func() {
 
 			invalidBook := book
 			invalidBook.BookID = ""
 
-			err := s.model.Insert(invalidBook)
-			s.Require().Error(err, "Should throw error")
+			s.Require().Error(s.model.Insert(invalidBook), "Should throw error")
 		})
 
 		s.Run("Use empty title", func() {
@@ -102,8 +111,7 @@ func (s *BooksModelTestSuite) TestInsert() {
 			invalidBook := book
 			invalidBook.Title = ""
 
-			err := s.model.Insert(invalidBook)
-			s.Require().Error(err, "Should throw error")
+			s.Require().Error(s.model.Insert(invalidBook), "Should throw error")
 		})
 
 		s.Run("Use empty author", func() {
@@ -111,17 +119,15 @@ func (s *BooksModelTestSuite) TestInsert() {
 			invalidBook := book
 			invalidBook.Author = ""
 
-			err := s.model.Insert(invalidBook)
-			s.Require().Error(err, "Should throw error")
+			s.Require().Error(s.model.Insert(invalidBook), "Should throw error")
 		})
 
 		s.Run("Use nil categories", func() {
 
-			invalidBook := fakeBook()
+			invalidBook := mockBook()
 			invalidBook.Categories = nil
 
-			err := s.model.Insert(invalidBook)
-			s.Require().Error(err, "Should throw error")
+			s.Require().Error(s.model.Insert(invalidBook), "Should throw error")
 		})
 	})
 }
@@ -169,12 +175,8 @@ func (s *BooksModelTestSuite) TestSearch() {
 		Categories:  []string{"Category A", "Category B"},
 	}
 
-	sortedBooks := []objects.Book{bookA, bookC, bookB}
-
-	shuffledBooks := slices.Clone[[]objects.Book, objects.Book](sortedBooks)
-	gofakeit.ShuffleAnySlice(shuffledBooks)
-
-	for _, book := range shuffledBooks {
+	books := []objects.Book{bookA, bookC, bookB}
+	for _, book := range books {
 		s.Require().NoError(s.model.Insert(book), "Insert books before testing failed")
 	}
 
@@ -212,6 +214,7 @@ func (s *BooksModelTestSuite) TestSearch() {
 
 					s.Equal(1, result.Page)
 					s.EqualValues(totalAllDocumentsPage, result.TotalPages)
+					s.EqualValues(totalDocumentsCount, result.Count)
 					s.Len(result.Data, 2)
 				},
 				Options: SearchOptions{
@@ -220,11 +223,12 @@ func (s *BooksModelTestSuite) TestSearch() {
 			},
 			"None (Page 2)": {
 				Validate: func(s *BooksModelTestSuite, result models.PaginationData[objects.Book]) {
+
 					s.Equal(2, result.Page)
 					s.EqualValues(totalAllDocumentsPage, result.TotalPages)
+					s.EqualValues(totalDocumentsCount, result.Count)
 
 					dataLen := len(result.Data)
-
 					s.GreaterOrEqual(dataLen, 1)
 					s.Less(dataLen, 3)
 				},
@@ -234,8 +238,10 @@ func (s *BooksModelTestSuite) TestSearch() {
 			},
 			"Title (Equal)": {
 				Validate: func(s *BooksModelTestSuite, result models.PaginationData[objects.Book]) {
+
 					s.Equal(1, result.Page)
 					s.EqualValues(1, result.TotalPages)
+					s.EqualValues(2, result.Count)
 					s.EqualValues([]objects.Book{bookA, bookC}, result.Data)
 				},
 				Options: SearchOptions{
@@ -248,23 +254,27 @@ func (s *BooksModelTestSuite) TestSearch() {
 			},
 			"Title (Partial)": {
 				Validate: func(s *BooksModelTestSuite, result models.PaginationData[objects.Book]) {
+
 					s.Equal(1, result.Page)
-					s.EqualValues(1, result.TotalPages)
-					s.EqualValues([]objects.Book{bookB}, result.Data)
+					s.Equal(1, result.TotalPages)
+					s.Equal(2, result.Count)
+					s.EqualValues([]objects.Book{bookA, bookC}, result.Data)
 				},
 				Options: SearchOptions{
 					CurrentPage: 1,
 					Title: models.MatchOptions{
 						MatchType: models.PartialMatchType,
-						Value:     "search_b",
+						Value:     "_a_",
 					},
 				},
 			},
 			"Title (Start with)": {
 				Validate: func(s *BooksModelTestSuite, result models.PaginationData[objects.Book]) {
+
 					s.Equal(1, result.Page)
-					s.EqualValues(2, result.TotalPages)
-					s.EqualValues(sortedBooks[0:2], result.Data)
+					s.Equal(2, result.TotalPages)
+					s.Equal(3, result.Count)
+					s.EqualValues(books[0:2], result.Data)
 				},
 				Options: SearchOptions{
 					CurrentPage: 1,
@@ -276,8 +286,10 @@ func (s *BooksModelTestSuite) TestSearch() {
 			},
 			"Title (End with)": {
 				Validate: func(s *BooksModelTestSuite, result models.PaginationData[objects.Book]) {
+
 					s.Equal(1, result.Page)
-					s.EqualValues(1, result.TotalPages)
+					s.Equal(1, result.TotalPages)
+					s.Equal(2, result.Count)
 					s.EqualValues([]objects.Book{bookA, bookC}, result.Data)
 				},
 				Options: SearchOptions{
@@ -290,8 +302,10 @@ func (s *BooksModelTestSuite) TestSearch() {
 			},
 			"Author (Equal)": {
 				Validate: func(s *BooksModelTestSuite, result models.PaginationData[objects.Book]) {
+
 					s.Equal(1, result.Page)
-					s.EqualValues(1, result.TotalPages)
+					s.Equal(1, result.TotalPages)
+					s.Equal(2, result.Count)
 					s.EqualValues([]objects.Book{bookA, bookB}, result.Data)
 				},
 				Options: SearchOptions{
@@ -304,23 +318,27 @@ func (s *BooksModelTestSuite) TestSearch() {
 			},
 			"Author (Partial)": {
 				Validate: func(s *BooksModelTestSuite, result models.PaginationData[objects.Book]) {
+
 					s.Equal(1, result.Page)
-					s.EqualValues(1, result.TotalPages)
-					s.EqualValues([]objects.Book{bookC}, result.Data)
+					s.Equal(1, result.TotalPages)
+					s.Equal(2, result.Count)
+					s.EqualValues([]objects.Book{bookA, bookB}, result.Data)
 				},
 				Options: SearchOptions{
 					CurrentPage: 1,
 					Author: models.MatchOptions{
 						MatchType: models.PartialMatchType,
-						Value:     "search_b",
+						Value:     "_a_",
 					},
 				},
 			},
 			"Author (Start with)": {
 				Validate: func(s *BooksModelTestSuite, result models.PaginationData[objects.Book]) {
+
 					s.Equal(1, result.Page)
-					s.EqualValues(2, result.TotalPages)
-					s.EqualValues(sortedBooks[0:2], result.Data)
+					s.Equal(2, result.TotalPages)
+					s.Equal(3, result.Count)
+					s.EqualValues(books[0:2], result.Data)
 				},
 				Options: SearchOptions{
 					CurrentPage: 1,
@@ -332,8 +350,10 @@ func (s *BooksModelTestSuite) TestSearch() {
 			},
 			"Author (End with)": {
 				Validate: func(s *BooksModelTestSuite, result models.PaginationData[objects.Book]) {
+
 					s.Equal(1, result.Page)
-					s.EqualValues(1, result.TotalPages)
+					s.Equal(1, result.TotalPages)
+					s.Equal(2, result.Count)
 					s.EqualValues([]objects.Book{bookA, bookB}, result.Data)
 				},
 				Options: SearchOptions{
@@ -346,8 +366,10 @@ func (s *BooksModelTestSuite) TestSearch() {
 			},
 			"Categories": {
 				Validate: func(s *BooksModelTestSuite, result models.PaginationData[objects.Book]) {
+
 					s.Equal(1, result.Page)
-					s.EqualValues(1, result.TotalPages)
+					s.Equal(1, result.TotalPages)
+					s.Equal(2, result.Count)
 					s.EqualValues([]objects.Book{bookA, bookC}, result.Data)
 				},
 				Options: SearchOptions{
@@ -372,7 +394,7 @@ func (s *BooksModelTestSuite) TestSearch() {
 	s.Run("Should throw error when set current page as non-positive value", func() {
 
 		result, err := s.model.Search(SearchOptions{CurrentPage: 0})
-		s.Require().Equal(errors.CurrentPageInvalidError.New(), err, "Should have returned error")
+		s.Require().ErrorIs(err, errors.CurrentPageInvalidError.New(), "Should have returned error")
 		s.Require().Empty(result)
 	})
 
@@ -395,23 +417,21 @@ func (s *BooksModelTestSuite) TestUpdate() {
 
 	s.Run("Should update exist book properly", func() {
 
-		bookToUpdate := fakeBook()
+		bookToUpdate := mockBook()
 		bookToUpdate.BookID = s.insertedBook.BookID
 
 		s.Require().NoError(s.model.Update(bookToUpdate))
 
-		s.T().Cleanup(func() {
-			s.Require().NoError(s.model.Update(s.insertedBook))
-		})
-
 		actual, err := s.model.GetByID(bookToUpdate.BookID)
 		s.Require().NoError(err, "Getting updated book failed")
 		s.Require().EqualValues(bookToUpdate, actual)
+
+		s.insertedBook = bookToUpdate
 	})
 
 	s.Run("Should update partial data in book properly", func() {
 
-		mockBook := fakeBook()
+		mockBook := mockBook()
 
 		var bookToUpdate = objects.Book{
 			BookID:      s.insertedBook.BookID,
@@ -421,10 +441,6 @@ func (s *BooksModelTestSuite) TestUpdate() {
 
 		s.Require().NoError(s.model.Update(bookToUpdate))
 
-		s.T().Cleanup(func() {
-			s.Require().NoError(s.model.Update(s.insertedBook))
-		})
-
 		expected := s.insertedBook
 		expected.Author = bookToUpdate.Author
 		expected.Description = bookToUpdate.Description
@@ -432,12 +448,14 @@ func (s *BooksModelTestSuite) TestUpdate() {
 		actual, err := s.model.GetByID(expected.BookID)
 		s.Require().NoError(err, "Getting updated book failed")
 		s.Require().EqualValues(expected, actual)
+
+		s.insertedBook = expected
 	})
 
-	s.Run("Should throw error when update non-exist book", func() {
+	s.Run("Should throw error when update book which is not in database", func() {
 
-		bookToUpdate := fakeBook()
-		s.Require().Error(s.model.Update(bookToUpdate))
+		bookToUpdate := mockBook()
+		s.Require().ErrorIs(s.model.Update(bookToUpdate), errors.ObjectIDNotFoundError.New(bookToUpdate.BookID))
 
 		actual, err := s.model.GetByID(s.insertedBook.BookID)
 		s.Require().NoError(err, "Getting updated book failed")
@@ -457,8 +475,7 @@ func (s *BooksModelTestSuite) TestDelete() {
 	})
 
 	s.Run("Should throw error when delete non-exist book", func() {
-
-		s.Require().Error(s.model.Delete(s.insertedBook.BookID), "Delete exist book failed")
+		s.Require().Error(s.model.Delete("non-existed book_id"), "Should throw error")
 	})
 }
 
@@ -466,13 +483,12 @@ func TestBooksModel(t *testing.T) {
 	suite.Run(t, new(BooksModelTestSuite))
 }
 
-func fakeBook() objects.Book {
+func mockBook() objects.Book {
 
 	fakeInfo := gofakeit.Book()
-	uuid := gofakeit.UUID()
 
 	return objects.Book{
-		BookID:      fmt.Sprintf("book_%s", uuid),
+		BookID:      fmt.Sprintf("book_%s", gofakeit.UUID()),
 		Title:       fakeInfo.Title,
 		Author:      fakeInfo.Author,
 		Description: gofakeit.SentenceSimple(),
