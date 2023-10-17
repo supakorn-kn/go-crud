@@ -25,17 +25,17 @@ const (
 	ContainsInMatchType MatchType = 4
 )
 
-type BaseSearchOption struct {
+type BaseSearchOptions struct {
 	CurrentPage int
 	Pipeline    mongo.Pipeline
 }
 
-type MatchOption struct {
+type MatchOptions struct {
 	MatchType MatchType `json:"match_type"`
 	Value     string    `json:"value"`
 }
 
-func (opt MatchOption) IsNil() bool {
+func (opt MatchOptions) IsNil() bool {
 	return reflect.ValueOf(opt).IsZero()
 }
 
