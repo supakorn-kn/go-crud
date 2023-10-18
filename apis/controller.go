@@ -8,10 +8,6 @@ import (
 	"github.com/supakorn-kn/go-crud/models"
 )
 
-const (
-	responseContextKey = "response"
-)
-
 func RegisterCrudAPI[Item models.Item](api CrudAPI[Item], group *gin.RouterGroup) {
 
 	group.Use(func(ctx *gin.Context) {
@@ -40,7 +36,7 @@ func RegisterCrudAPI[Item models.Item](api CrudAPI[Item], group *gin.RouterGroup
 			return
 		}
 
-		ctx.JSON(http.StatusOK, CRUDResponse{Result: item})
+		ctx.JSON(http.StatusOK, CRUDResponse{Result: item, Error: nil})
 	})
 
 	group.GET("", func(ctx *gin.Context) {
@@ -82,12 +78,14 @@ func writeErrorJSON(ctx *gin.Context, err error) {
 
 	assertedError, ok := errors.TryAssertError(err)
 	if !ok {
-		ctx.JSON(http.StatusInternalServerError, CRUDResponse{Error: errors.UnknownError.New(err)})
+
+		unknownError := errors.UnknownError.New(err)
+		ctx.JSON(http.StatusInternalServerError, CRUDResponse{Error: &unknownError})
 		return
 	}
 
 	var statusCode int
-	var errorResponse = CRUDResponse{Error: assertedError}
+	var errorResponse = CRUDResponse{Error: &assertedError}
 
 	switch assertedError.Code {
 	case errors.ObjectIDNotFoundErrorCode:

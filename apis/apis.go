@@ -7,8 +7,8 @@ import (
 )
 
 type CRUDResponse struct {
-	Result any              `json:"result,omitempty"`
-	Error  errors.BaseError `json:"error,omitempty"`
+	Result any               `json:"result,omitempty"`
+	Error  *errors.BaseError `json:"error,omitempty"`
 }
 
 type CrudAPI[Item models.Item] interface {
