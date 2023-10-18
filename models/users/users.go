@@ -3,6 +3,7 @@ package users
 import (
 	"context"
 	"errors"
+	"net/mail"
 	"slices"
 	"strings"
 
@@ -198,9 +199,12 @@ func (m UsersModel) Insert(user objects.User) error {
 	if strings.EqualFold(user.UserID, "") ||
 		strings.EqualFold(user.Username, "") ||
 		strings.EqualFold(user.Password, "") ||
-		strings.EqualFold(user.AccountName, "") ||
-		strings.EqualFold(user.Email, "") {
+		strings.EqualFold(user.AccountName, "") {
 
+		return serverError.DataValidationFailedError.New()
+	}
+
+	if _, err := mail.ParseAddress(user.Email); err != nil {
 		return serverError.DataValidationFailedError.New()
 	}
 
