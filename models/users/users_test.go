@@ -3,12 +3,14 @@ package users
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/brianvoe/gofakeit/v6"
 	"github.com/stretchr/testify/suite"
 	"github.com/supakorn-kn/go-crud/errors"
+	"github.com/supakorn-kn/go-crud/models"
 	"github.com/supakorn-kn/go-crud/mongodb"
 	"github.com/supakorn-kn/go-crud/objects"
 	"go.mongodb.org/mongo-driver/bson"
@@ -43,13 +45,13 @@ func (s *UsersModelTestSuite) BeforeTest(suiteName, testName string) {
 		return
 	}
 
-	s.insertedUser = fakeUser()
+	s.insertedUser = mockUser()
 	s.Require().NoError(s.model.Insert(s.insertedUser), "Setup test failed from inserting users")
 }
 
 func (s *UsersModelTestSuite) AfterTest(suiteName, testName string) {
 
-	if testName == "TestInsert" || testName == "TestSearch" || testName == "TestDelete" {
+	if testName == "TestSearch" || testName == "TestDelete" {
 		return
 	}
 
@@ -64,7 +66,7 @@ func (s *UsersModelTestSuite) TestInsert() {
 
 	s.Run("Should insert valid user properly", func() {
 
-		user := fakeUser()
+		user := mockUser()
 		s.Require().NoError(s.model.Insert(user), "Inserting User failed")
 
 		result := s.model.Coll.FindOne(context.Background(), bson.D{{Key: "user_id", Value: user.UserID}})
@@ -72,37 +74,43 @@ func (s *UsersModelTestSuite) TestInsert() {
 		var actual objects.User
 		s.Require().NoError(result.Decode(&actual), "Unmarshalling inserted User failed")
 		s.Require().EqualValues(user, actual, "Read data is not the same as inserted")
+
+		s.insertedUser = user
 	})
 
 	s.Run("Should throw error when insert user with existed data", func() {
 
-		user := fakeUser()
+		user := mockUser()
 		s.Require().NoError(s.model.Insert(user), "Inserting User failed")
+
+		s.T().Cleanup(func() {
+			s.Require().NoError(s.model.Delete(user.UserID), "Clearing test failed from deleting user")
+		})
 
 		s.Run("Existed user_id", func() {
 
-			newUser := fakeUser()
+			newUser := mockUser()
 			newUser.UserID = user.UserID
 			s.Require().Error(s.model.Insert(newUser), "Should have thrown error")
 		})
 
 		s.Run("Existed username", func() {
 
-			newUser := fakeUser()
+			newUser := mockUser()
 			newUser.Username = user.Username
 			s.Require().Error(s.model.Insert(newUser), "Should have thrown error")
 		})
 
 		s.Run("Existed account_name", func() {
 
-			newUser := fakeUser()
+			newUser := mockUser()
 			newUser.AccountName = user.AccountName
 			s.Require().Error(s.model.Insert(newUser), "Should have thrown error")
 		})
 
 		s.Run("Existed email", func() {
 
-			newUser := fakeUser()
+			newUser := mockUser()
 			newUser.Email = user.Email
 			s.Require().Error(s.model.Insert(newUser), "Should have thrown error")
 		})
@@ -110,7 +118,7 @@ func (s *UsersModelTestSuite) TestInsert() {
 
 	s.Run("Should throw error when insert invalid user data", func() {
 
-		user := fakeUser()
+		user := mockUser()
 
 		s.Run("Use empty user ID", func() {
 
@@ -151,6 +159,14 @@ func (s *UsersModelTestSuite) TestInsert() {
 
 			s.Require().Error(s.model.Insert(invalidUser), "Should throw error")
 		})
+
+		s.Run("Use invalid email format", func() {
+
+			invalidUser := user
+			invalidUser.Email = "invalid-email"
+
+			s.Require().Error(s.model.Insert(invalidUser), "Should throw error")
+		})
 	})
 }
 
@@ -173,316 +189,413 @@ func (s *UsersModelTestSuite) TestGetByID() {
 	})
 }
 
-// func (s *UsersModelTestSuite) TestSearch() {
+func (s *UsersModelTestSuite) TestSearch() {
 
-// 	userA := objects.User{
-// 		UserID:      gofakeit.UUID(),
-// 		Username:    "user_a",
-// 		Password:    "passwd_a",
-// 		AccountName: "User A",
-// 		Email:       "userA@example.com",
-// 	}
+	userA := objects.User{
+		UserID:      gofakeit.UUID(),
+		Username:    "user_search_a",
+		Password:    "passwd_search_a",
+		AccountName: "Search_User A",
+		Email:       "mail_search_userA@example.mock",
+	}
 
-// 	userB := objects.User{
-// 		UserID:      gofakeit.UUID(),
-// 		Username:    "user_b",
-// 		Password:    "passwd_b",
-// 		AccountName: "User B",
-// 		Email:       "userB@example.com",
-// 	}
+	userB := objects.User{
+		UserID:      gofakeit.UUID(),
+		Username:    "user_search_b",
+		Password:    "passwd_search_b",
+		AccountName: "Search_User B",
+		Email:       "mail_search_userB@example.mock",
+	}
 
-// 	userC := objects.User{
-// 		UserID:      gofakeit.UUID(),
-// 		Username:    "user_c",
-// 		Password:    "passwd_c",
-// 		AccountName: "User C",
-// 		Email:       "userC@example.com",
-// 	}
+	userC := objects.User{
+		UserID:      gofakeit.UUID(),
+		Username:    "user_search_c",
+		Password:    "passwd_search_c",
+		AccountName: "Search_User C",
+		Email:       "mail_search_userC@example.mock",
+	}
 
-// 	var initialLimit = s.model.SearchLenLimit
-// 	s.model.SearchLenLimit = 2
-// 	s.T().Cleanup(func() {
+	users := []objects.User{userA, userB, userC}
+	for _, user := range users {
+		s.Require().NoError(s.model.Insert(user), "Insert users before testing failed")
+	}
 
-// 		s.model.SearchLenLimit = initialLimit
+	slices.SortFunc(users, func(a, b objects.User) int {
 
-// 		matchQuery := bson.D{{
-// 			Key:   s.model.ItemIDKey,
-// 			Value: bson.D{{Key: "$in", Value: bson.A{userA.UserID, userB.UserID, userC.UserID}}},
-// 		}}
+		if a.UserID > b.UserID {
+			return 1
+		}
 
-// 		_, err := s.model.Coll.DeleteMany(context.Background(), matchQuery)
-// 		s.NoError(err, "Clearing inserted users for searching failed")
-// 	})
+		return -1
+	})
 
-// 	users := []objects.User{userA, userB, userC}
-// 	for _, user := range users {
-// 		s.Require().NoError(s.model.Insert(user), "Insert users before testing failed")
-// 	}
+	var initialLimit = s.model.SearchLenLimit
+	s.model.SearchLenLimit = 2
 
-// 	slices.SortFunc(users, func(a, b objects.User) int {
+	s.T().Cleanup(func() {
 
-// 		if a.UserID > b.UserID {
-// 			return 1
-// 		}
+		s.model.SearchLenLimit = initialLimit
 
-// 		return -1
-// 	})
+		matchQuery := bson.D{{
+			Key:   s.model.ItemIDKey,
+			Value: bson.D{{Key: "$in", Value: bson.A{userA.UserID, userB.UserID, userC.UserID}}},
+		}}
 
-// 	s.Run("Should get user(s) properly by given options", func() {
+		_, err := s.model.Coll.DeleteMany(context.Background(), matchQuery)
+		s.NoError(err, "Clearing inserted users for searching failed")
+	})
 
-// 		var testCases = map[string]struct {
-// 			Expected models.PaginationData[objects.User]
-// 			Option   SearchOptions
-// 		}{
-// 			"None (Page 1)": {
-// 				Expected: models.PaginationData[objects.User]{
-// 					Page:       1,
-// 					TotalPages: 2,
-// 					Data:       users[:2],
-// 				},
-// 				Option: SearchOptions{
-// 					CurrentPage: 1,
-// 				},
-// 			},
-// 			"None (Page 2)": {
-// 				Expected: models.PaginationData[objects.User]{
-// 					Page:       2,
-// 					TotalPages: 2,
-// 					Data:       users[2:],
-// 				},
-// 				Option: SearchOptions{
-// 					CurrentPage: 2,
-// 				},
-// 			},
-// 			"User ID (Equal)": {
-// 				Expected: models.PaginationData[objects.User]{
-// 					Page:       1,
-// 					TotalPages: 1,
-// 					Data:       []objects.User{userA},
-// 				},
-// 				Option: SearchOptions{
-// 					CurrentPage: 1,
-// 					UserID:      userA.UserID,
-// 				},
-// 			},
-// 			"Username (Equal)": {
-// 				Expected: models.PaginationData[objects.User]{
-// 					Page:       1,
-// 					TotalPages: 1,
-// 					Data:       []objects.User{userB},
-// 				},
-// 				Option: SearchOptions{
-// 					CurrentPage: 1,
-// 					Username: models.MatchOptions{
-// 						MatchType: models.EqualMatchType,
-// 						Value:     userB.Username,
-// 					},
-// 				},
-// 			},
-// 			"Username (Partial)": {
-// 				Expected: models.PaginationData[objects.User]{
-// 					Page:       1,
-// 					TotalPages: 2,
-// 					Data:       users[:2],
-// 				},
-// 				Option: SearchOptions{
-// 					CurrentPage: 1,
-// 					Username: models.MatchOptions{
-// 						MatchType: models.PartialMatchType,
-// 						Value:     "er",
-// 					},
-// 				},
-// 			},
-// 			"Username (Start with)": {
-// 				Expected: models.PaginationData[objects.User]{
-// 					Page:       1,
-// 					TotalPages: 2,
-// 					Data:       users[:2],
-// 				},
-// 				Option: SearchOptions{
-// 					CurrentPage: 1,
-// 					Username: models.MatchOptions{
-// 						MatchType: models.StartWithMatchType,
-// 						Value:     "us",
-// 					},
-// 				},
-// 			},
-// 			"Username (End with)": {
-// 				Expected: models.PaginationData[objects.User]{
-// 					Page:       1,
-// 					TotalPages: 1,
-// 					Data:       []objects.User{userC},
-// 				},
-// 				Option: SearchOptions{
-// 					CurrentPage: 1,
-// 					Username: models.MatchOptions{
-// 						MatchType: models.EndWithMatchType,
-// 						Value:     "c",
-// 					},
-// 				},
-// 			},
-// 			"Account name (Equal)": {
-// 				Expected: models.PaginationData[objects.User]{
-// 					Page:       1,
-// 					TotalPages: 1,
-// 					Data:       []objects.User{userB},
-// 				},
-// 				Option: SearchOptions{
-// 					CurrentPage: 1,
-// 					AccountName: models.MatchOptions{
-// 						MatchType: models.EqualMatchType,
-// 						Value:     userB.AccountName,
-// 					},
-// 				},
-// 			},
-// 			"Account name (Partial)": {
-// 				Expected: models.PaginationData[objects.User]{
-// 					Page:       1,
-// 					TotalPages: 2,
-// 					Data:       users[:2],
-// 				},
-// 				Option: SearchOptions{
-// 					CurrentPage: 1,
-// 					AccountName: models.MatchOptions{
-// 						MatchType: models.PartialMatchType,
-// 						Value:     "user",
-// 					},
-// 				},
-// 			},
-// 			"Account name (Start with)": {
-// 				Expected: models.PaginationData[objects.User]{
-// 					Page:       1,
-// 					TotalPages: 2,
-// 					Data:       users[:2],
-// 				},
-// 				Option: SearchOptions{
-// 					CurrentPage: 1,
-// 					AccountName: models.MatchOptions{
-// 						MatchType: models.StartWithMatchType,
-// 						Value:     "use",
-// 					},
-// 				},
-// 			},
-// 			"Account name (End with)": {
-// 				Expected: models.PaginationData[objects.User]{
-// 					Page:       1,
-// 					TotalPages: 1,
-// 					Data:       []objects.User{userA},
-// 				},
-// 				Option: SearchOptions{
-// 					CurrentPage: 1,
-// 					AccountName: models.MatchOptions{
-// 						MatchType: models.EndWithMatchType,
-// 						Value:     "a",
-// 					},
-// 				},
-// 			},
-// 			"Email (Equal)": {
-// 				Expected: models.PaginationData[objects.User]{
-// 					Page:       1,
-// 					TotalPages: 1,
-// 					Data:       []objects.User{userB},
-// 				},
-// 				Option: SearchOptions{
-// 					CurrentPage: 1,
-// 					Email: models.MatchOptions{
-// 						MatchType: models.EqualMatchType,
-// 						Value:     userB.Email,
-// 					},
-// 				},
-// 			},
-// 			"Email (Partial)": {
-// 				Expected: models.PaginationData[objects.User]{
-// 					Page:       1,
-// 					TotalPages: 2,
-// 					Data:       users[:2],
-// 				},
-// 				Option: SearchOptions{
-// 					CurrentPage: 1,
-// 					Email: models.MatchOptions{
-// 						MatchType: models.PartialMatchType,
-// 						Value:     "@",
-// 					},
-// 				},
-// 			},
-// 			"Email (Start with)": {
-// 				Expected: models.PaginationData[objects.User]{
-// 					Page:       1,
-// 					TotalPages: 2,
-// 					Data:       users[:2],
-// 				},
-// 				Option: SearchOptions{
-// 					CurrentPage: 1,
-// 					Email: models.MatchOptions{
-// 						MatchType: models.StartWithMatchType,
-// 						Value:     "use",
-// 					},
-// 				},
-// 			},
-// 			"Email (End with)": {
-// 				Expected: models.PaginationData[objects.User]{
-// 					Page:       1,
-// 					TotalPages: 2,
-// 					Data:       users[:2],
-// 				},
-// 				Option: SearchOptions{
-// 					CurrentPage: 1,
-// 					Email: models.MatchOptions{
-// 						MatchType: models.EndWithMatchType,
-// 						Value:     "m",
-// 					},
-// 				},
-// 			},
-// 		}
+	count, err := s.model.Coll.CountDocuments(context.Background(), bson.D{})
+	var allDocsCount = int(count)
 
-// 		for optionName, testCase := range testCases {
+	s.Require().NoError(err)
+	totalPages := allDocsCount / s.model.SearchLenLimit
+	if allDocsCount%s.model.SearchLenLimit != 0 {
+		totalPages++
+	}
 
-// 			s.Run(fmt.Sprintf("Search with option %s", optionName), func() {
+	s.Run("Should get user(s) properly by given options", func() {
 
-// 				fmt.Println(optionName)
+		var testCases = map[string]struct {
+			Expected models.PaginationData[objects.User]
+			Validate func(*UsersModelTestSuite, models.PaginationData[objects.User])
+			Option   SearchOptions
+		}{
+			"None (Page 1)": {
+				Validate: func(s *UsersModelTestSuite, result models.PaginationData[objects.User]) {
 
-// 				paginationData, err := s.model.Search(testCase.Option)
-// 				s.Require().NoError(err, "Searching user failed")
-// 				s.Require().EqualValues(testCase.Expected, paginationData)
-// 			})
-// 		}
-// 	})
+					s.Equal(1, result.Page)
+					s.Equal(totalPages, result.TotalPages)
+					s.Equal(allDocsCount, result.Count)
+					s.Len(result.Data, 2)
+				},
+				Option: SearchOptions{
+					CurrentPage: 1,
+				},
+			},
+			"None (Page 2)": {
+				Expected: models.PaginationData[objects.User]{
+					Page:       2,
+					TotalPages: 2,
+					Data:       users[2:],
+				},
+				Validate: func(s *UsersModelTestSuite, result models.PaginationData[objects.User]) {
 
-// 	s.Run("Should throw error when set current page as non-positive value", func() {
+					s.Equal(2, result.Page)
+					s.Equal(totalPages, result.TotalPages)
+					s.Equal(allDocsCount, result.Count)
 
-// 		result, err := s.model.Search(SearchOptions{CurrentPage: 0})
-// 		s.Require().ErrorIs(errors.CurrentPageInvalidError.New(), err, "Should have returned error")
-// 		s.Require().Empty(result)
-// 	})
+					dataLen := len(result.Data)
+					s.GreaterOrEqual(dataLen, 1)
+					s.Less(dataLen, 3)
+				},
+				Option: SearchOptions{
+					CurrentPage: 2,
+				},
+			},
+			"User ID": {
+				Validate: func(s *UsersModelTestSuite, result models.PaginationData[objects.User]) {
 
-// 	s.Run("Should throw error when set invalid or unsupported match type", func() {
+					var expected = models.PaginationData[objects.User]{
+						Page:       1,
+						TotalPages: 1,
+						Count:      1,
+						Data:       []objects.User{userA},
+					}
 
-// 		result, err := s.model.Search(
-// 			SearchOptions{
-// 				CurrentPage: 1,
-// 				Username: models.MatchOptions{
-// 					MatchType: 255,
-// 				},
-// 			},
-// 		)
-// 		s.Require().Error(err, "Should have returned error")
-// 		s.Require().Empty(result)
-// 	})
+					s.Equal(expected, result)
+				},
+				Option: SearchOptions{
+					CurrentPage: 1,
+					UserID:      userA.UserID,
+				},
+			},
+			"Username (Equal)": {
+				Validate: func(s *UsersModelTestSuite, result models.PaginationData[objects.User]) {
 
-// }
+					var expected = models.PaginationData[objects.User]{
+						Page:       1,
+						TotalPages: 1,
+						Count:      1,
+						Data:       []objects.User{userB},
+					}
+
+					s.Equal(expected, result)
+				},
+				Option: SearchOptions{
+					CurrentPage: 1,
+					Username: models.MatchOptions{
+						MatchType: models.EqualMatchType,
+						Value:     userB.Username,
+					},
+				},
+			},
+			"Username (Partial)": {
+				Validate: func(s *UsersModelTestSuite, result models.PaginationData[objects.User]) {
+
+					var expected = models.PaginationData[objects.User]{
+						Page:       1,
+						TotalPages: 2,
+						Count:      3,
+						Data:       users[:2],
+					}
+
+					s.Equal(expected, result)
+				},
+				Option: SearchOptions{
+					CurrentPage: 1,
+					Username: models.MatchOptions{
+						MatchType: models.PartialMatchType,
+						Value:     "_search_",
+					},
+				},
+			},
+			"Username (Start with)": {
+				Validate: func(s *UsersModelTestSuite, result models.PaginationData[objects.User]) {
+
+					var expected = models.PaginationData[objects.User]{
+						Page:       1,
+						TotalPages: 2,
+						Count:      3,
+						Data:       users[:2],
+					}
+
+					s.Equal(expected, result)
+				},
+				Option: SearchOptions{
+					CurrentPage: 1,
+					Username: models.MatchOptions{
+						MatchType: models.StartWithMatchType,
+						Value:     "user_",
+					},
+				},
+			},
+			"Username (End with)": {
+				Validate: func(s *UsersModelTestSuite, result models.PaginationData[objects.User]) {
+
+					var expected = models.PaginationData[objects.User]{
+						Page:       1,
+						TotalPages: 1,
+						Count:      1,
+						Data:       []objects.User{userC},
+					}
+
+					s.Equal(expected, result)
+				},
+				Option: SearchOptions{
+					CurrentPage: 1,
+					Username: models.MatchOptions{
+						MatchType: models.EndWithMatchType,
+						Value:     "_c",
+					},
+				},
+			},
+			"Account name (Equal)": {
+				Validate: func(s *UsersModelTestSuite, result models.PaginationData[objects.User]) {
+
+					var expected = models.PaginationData[objects.User]{
+						Page:       1,
+						TotalPages: 1,
+						Count:      1,
+						Data:       []objects.User{userB},
+					}
+
+					s.Equal(expected, result)
+				},
+				Option: SearchOptions{
+					CurrentPage: 1,
+					AccountName: models.MatchOptions{
+						MatchType: models.EqualMatchType,
+						Value:     userB.AccountName,
+					},
+				},
+			},
+			"Account name (Partial)": {
+				Validate: func(s *UsersModelTestSuite, result models.PaginationData[objects.User]) {
+
+					var expected = models.PaginationData[objects.User]{
+						Page:       1,
+						TotalPages: 2,
+						Count:      3,
+						Data:       users[:2],
+					}
+
+					s.Equal(expected, result)
+				},
+				Option: SearchOptions{
+					CurrentPage: 1,
+					AccountName: models.MatchOptions{
+						MatchType: models.PartialMatchType,
+						Value:     "_user",
+					},
+				},
+			},
+			"Account name (Start with)": {
+				Validate: func(s *UsersModelTestSuite, result models.PaginationData[objects.User]) {
+
+					var expected = models.PaginationData[objects.User]{
+						Page:       1,
+						TotalPages: 2,
+						Count:      3,
+						Data:       users[:2],
+					}
+
+					s.Equal(expected, result)
+				},
+				Option: SearchOptions{
+					CurrentPage: 1,
+					AccountName: models.MatchOptions{
+						MatchType: models.StartWithMatchType,
+						Value:     "search_",
+					},
+				},
+			},
+			"Account name (End with)": {
+				Validate: func(s *UsersModelTestSuite, result models.PaginationData[objects.User]) {
+
+					var expected = models.PaginationData[objects.User]{
+						Page:       1,
+						TotalPages: 1,
+						Count:      1,
+						Data:       []objects.User{userA},
+					}
+
+					s.Equal(expected, result)
+				},
+				Option: SearchOptions{
+					CurrentPage: 1,
+					AccountName: models.MatchOptions{
+						MatchType: models.EndWithMatchType,
+						Value:     "user a",
+					},
+				},
+			},
+			"Email (Equal)": {
+				Validate: func(s *UsersModelTestSuite, result models.PaginationData[objects.User]) {
+
+					var expected = models.PaginationData[objects.User]{
+						Page:       1,
+						TotalPages: 1,
+						Count:      1,
+						Data:       []objects.User{userB},
+					}
+
+					s.Equal(expected, result)
+				},
+				Option: SearchOptions{
+					CurrentPage: 1,
+					Email: models.MatchOptions{
+						MatchType: models.EqualMatchType,
+						Value:     userB.Email,
+					},
+				},
+			},
+			"Email (Partial)": {
+				Validate: func(s *UsersModelTestSuite, result models.PaginationData[objects.User]) {
+
+					var expected = models.PaginationData[objects.User]{
+						Page:       1,
+						TotalPages: 2,
+						Count:      3,
+						Data:       users[:2],
+					}
+
+					s.Equal(expected, result)
+				},
+				Option: SearchOptions{
+					CurrentPage: 1,
+					Email: models.MatchOptions{
+						MatchType: models.PartialMatchType,
+						Value:     "@example",
+					},
+				},
+			},
+			"Email (Start with)": {
+				Validate: func(s *UsersModelTestSuite, result models.PaginationData[objects.User]) {
+
+					var expected = models.PaginationData[objects.User]{
+						Page:       1,
+						TotalPages: 2,
+						Count:      3,
+						Data:       users[:2],
+					}
+
+					s.Equal(expected, result)
+				},
+				Option: SearchOptions{
+					CurrentPage: 1,
+					Email: models.MatchOptions{
+						MatchType: models.StartWithMatchType,
+						Value:     "mail_search_",
+					},
+				},
+			},
+			"Email (End with)": {
+				Validate: func(s *UsersModelTestSuite, result models.PaginationData[objects.User]) {
+
+					var expected = models.PaginationData[objects.User]{
+						Page:       1,
+						TotalPages: 2,
+						Count:      3,
+						Data:       users[:2],
+					}
+
+					s.Equal(expected, result)
+				},
+				Option: SearchOptions{
+					CurrentPage: 1,
+					Email: models.MatchOptions{
+						MatchType: models.EndWithMatchType,
+						Value:     ".mock",
+					},
+				},
+			},
+		}
+
+		for optionName, testCase := range testCases {
+
+			s.Run(fmt.Sprintf("Search with option %s", optionName), func() {
+
+				paginationData, err := s.model.Search(testCase.Option)
+				s.Require().NoError(err, "Searching user failed")
+
+				testCase.Validate(s, paginationData)
+			})
+		}
+	})
+
+	s.Run("Should throw error when set current page as non-positive value", func() {
+
+		result, err := s.model.Search(SearchOptions{CurrentPage: 0})
+		s.Require().ErrorIs(errors.CurrentPageInvalidError.New(), err, "Should have returned error")
+		s.Require().Empty(result)
+	})
+
+	s.Run("Should throw error when set invalid or unsupported match type", func() {
+
+		result, err := s.model.Search(
+			SearchOptions{
+				CurrentPage: 1,
+				Username: models.MatchOptions{
+					MatchType: 255,
+				},
+			},
+		)
+		s.Require().Error(err, "Should have returned error")
+		s.Require().Empty(result)
+	})
+
+}
 
 func (s *UsersModelTestSuite) TestUpdate() {
 
 	s.Run("Should update exist user properly", func() {
 
-		userToUpdate := fakeUser()
+		userToUpdate := mockUser()
 		userToUpdate.UserID = s.insertedUser.UserID
 
 		s.Require().NoError(s.model.Update(userToUpdate))
-
-		s.T().Cleanup(func() {
-			s.Require().NoError(s.model.Update(s.insertedUser))
-		})
+		s.insertedUser = userToUpdate
 
 		actual, err := s.model.GetByID(userToUpdate.UserID)
 		s.Require().NoError(err, "Getting updated user failed")
@@ -491,7 +604,7 @@ func (s *UsersModelTestSuite) TestUpdate() {
 
 	s.Run("Should update partial data in user properly", func() {
 
-		mockUser := fakeUser()
+		mockUser := mockUser()
 
 		var userToUpdate = objects.User{
 			UserID:   s.insertedUser.UserID,
@@ -501,13 +614,11 @@ func (s *UsersModelTestSuite) TestUpdate() {
 
 		s.Require().NoError(s.model.Update(userToUpdate))
 
-		s.T().Cleanup(func() {
-			s.Require().NoError(s.model.Update(s.insertedUser))
-		})
-
 		expected := s.insertedUser
 		expected.Password = userToUpdate.Password
 		expected.Email = userToUpdate.Email
+
+		s.insertedUser = expected
 
 		actual, err := s.model.GetByID(expected.UserID)
 		s.Require().NoError(err, "Getting updated user failed")
@@ -516,7 +627,7 @@ func (s *UsersModelTestSuite) TestUpdate() {
 
 	s.Run("Should throw error when update non-exist user", func() {
 
-		userToUpdate := fakeUser()
+		userToUpdate := mockUser()
 		s.Require().Error(s.model.Update(userToUpdate))
 
 		actual, err := s.model.GetByID(s.insertedUser.UserID)
@@ -543,13 +654,12 @@ func (s *UsersModelTestSuite) TestDelete() {
 }
 
 func TestUsersModel(t *testing.T) {
-
 	suite.Run(t, new(UsersModelTestSuite))
 }
 
-func fakeUser() objects.User {
+func mockUser() objects.User {
 
-	now := time.Now().UnixMilli()
+	now := time.Now().UnixNano()
 
 	return objects.User{
 		UserID:      gofakeit.UUID(),
