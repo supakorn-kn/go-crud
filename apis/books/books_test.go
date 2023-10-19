@@ -111,7 +111,7 @@ func (s *BooksAPISuite) TestCreate() {
 		var resp apis.CRUDResponse
 		s.Require().NoError(json.Unmarshal(recorder.Body.Bytes(), &resp))
 		s.Empty(resp.Result)
-		s.True(errors.IsError(resp.Error, errors.DataValidationFailedError.New()))
+		s.True(errors.DataValidationFailedError.IsEqual(resp.Error))
 	})
 
 	s.Run("Should throw error when create book using existed book_id", func() {
@@ -122,7 +122,7 @@ func (s *BooksAPISuite) TestCreate() {
 		var resp apis.CRUDResponse
 		s.Require().NoError(json.Unmarshal(recorder.Body.Bytes(), &resp))
 		s.Empty(resp.Result)
-		s.True(errors.IsError(resp.Error, errors.DataAlreadyInUsedError.New()))
+		s.True(errors.DataAlreadyInUsedError.IsEqual(resp.Error))
 	})
 }
 
@@ -237,7 +237,7 @@ func (s *BooksAPISuite) TestRead() {
 		var resp apis.CRUDResponse
 		s.Require().NoError(json.Unmarshal(recorder.Body.Bytes(), &resp))
 		s.Empty(resp.Result)
-		s.True(errors.IsError(resp.Error, errors.CurrentPageInvalidError.New()))
+		s.True(errors.CurrentPageInvalidError.IsEqual(resp.Error))
 	})
 }
 
@@ -273,7 +273,7 @@ func (s *BooksAPISuite) TestReadOne() {
 		var resp apis.CRUDResponse
 		s.Require().NoError(json.Unmarshal(recorder.Body.Bytes(), &resp))
 		s.Empty(resp.Result)
-		s.True(errors.IsError(resp.Error, errors.ObjectIDNotFoundError.New(itemID)))
+		s.True(errors.ObjectIDNotFoundError.IsEqual(resp.Error))
 	})
 }
 
@@ -313,7 +313,7 @@ func (s *BooksAPISuite) TestUpdate() {
 		var resp apis.CRUDResponse
 		s.Require().NoError(json.Unmarshal(recorder.Body.Bytes(), &resp))
 		s.Empty(resp.Result)
-		s.True(errors.IsError(resp.Error, errors.ObjectIDNotFoundError.New(book.BookID)))
+		s.True(errors.ObjectIDNotFoundError.IsEqual(resp.Error))
 	})
 }
 
@@ -350,7 +350,7 @@ func (s *BooksAPISuite) TestDelete() {
 		var resp apis.CRUDResponse
 		s.Require().NoError(json.Unmarshal(recorder.Body.Bytes(), &resp))
 		s.Empty(resp.Result)
-		s.True(errors.IsError(resp.Error, errors.ObjectIDNotFoundError.New(book.BookID)))
+		s.True(errors.ObjectIDNotFoundError.IsEqual(resp.Error))
 	})
 }
 

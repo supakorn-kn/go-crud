@@ -8,6 +8,7 @@ import (
 type Error interface {
 	error
 	New(args ...any) BaseError
+	IsEqual(error) bool
 }
 
 type ErrorType int
@@ -41,6 +42,17 @@ func (e *BaseError) New(args ...any) BaseError {
 	return *e
 }
 
+func (e BaseError) IsEqual(err error) bool {
+
+	asserted, ok := TryAssertError(err)
+	if !ok {
+		return false
+	}
+
+	return asserted.Code == e.Code &&
+		asserted.Name == e.Name
+}
+
 func (e BaseError) IsNil() bool {
 	return reflect.ValueOf(e).IsZero()
 }
@@ -49,16 +61,6 @@ func TryAssertError(err error) (BaseError, bool) {
 
 	asserted, ok := err.(BaseError)
 	return asserted, ok
-}
-
-func IsError(err error, expectedError BaseError) bool {
-
-	asserted, ok := err.(BaseError)
-	if !ok {
-		return false
-	}
-
-	return asserted.Code == expectedError.Code && asserted.Message == expectedError.Message
 }
 
 func new(errorCode int, errorType ErrorType, name string, messageFormat string) Error {

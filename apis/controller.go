@@ -36,7 +36,7 @@ func RegisterCrudAPI[Item models.Item](api CrudAPI[Item], group *gin.RouterGroup
 			return
 		}
 
-		ctx.JSON(http.StatusOK, CRUDResponse{Result: item, Error: nil})
+		ctx.JSON(http.StatusOK, CRUDResponse{Result: item})
 	})
 
 	group.GET("", func(ctx *gin.Context) {
@@ -80,12 +80,12 @@ func writeErrorJSON(ctx *gin.Context, err error) {
 	if !ok {
 
 		unknownError := errors.UnknownError.New(err)
-		ctx.JSON(http.StatusInternalServerError, CRUDResponse{Error: &unknownError})
+		ctx.JSON(http.StatusInternalServerError, CRUDResponse{Error: unknownError})
 		return
 	}
 
 	var statusCode int
-	var errorResponse = CRUDResponse{Error: &assertedError}
+	var errorResponse = CRUDResponse{Error: assertedError}
 
 	switch assertedError.Code {
 	case errors.ObjectIDNotFoundErrorCode:
