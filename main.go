@@ -16,7 +16,6 @@ import (
 
 func main() {
 
-	//slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 
 	envConfig, err := env.GetEnv()
