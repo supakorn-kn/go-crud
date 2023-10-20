@@ -9,6 +9,7 @@ import (
 
 	"github.com/brianvoe/gofakeit/v6"
 	"github.com/stretchr/testify/suite"
+	"github.com/supakorn-kn/go-crud/env"
 	"github.com/supakorn-kn/go-crud/errors"
 	"github.com/supakorn-kn/go-crud/models"
 	"github.com/supakorn-kn/go-crud/mongodb"
@@ -25,18 +26,21 @@ type UsersModelTestSuite struct {
 
 func (s *UsersModelTestSuite) SetupSuite() {
 
-	//TODO: Will set parameter from env
-	conn := mongodb.New("mongodb://localhost:27017", "go-crud_test")
-	s.Require().NoError(conn.Connect(), "Create Mongodb connection failed")
+	config, err := env.GetEnv()
+	s.Require().NoError(err)
 
-	newModel, err := NewUsersModel(&conn)
+	conn, err := mongodb.New(config.MongoDB)
+	s.Require().NoError(err, "Create MongoDB connection failed")
+	s.Require().NoError(conn.Connect(), "Connecting to MongoDB failed")
+
+	newModel, err := NewUsersModel(conn)
 	if err != nil {
 		conn.Disconnect()
 		s.FailNow("Setup User model failed", err)
 	}
 
 	s.model = newModel
-	s.conn = &conn
+	s.conn = conn
 }
 
 func (s *UsersModelTestSuite) BeforeTest(suiteName, testName string) {

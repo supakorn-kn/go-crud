@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/suite"
 	"github.com/supakorn-kn/go-crud/apis"
+	"github.com/supakorn-kn/go-crud/env"
 	"github.com/supakorn-kn/go-crud/errors"
 	"github.com/supakorn-kn/go-crud/models"
 	"github.com/supakorn-kn/go-crud/models/users"
@@ -22,7 +23,7 @@ import (
 
 type UsersAPISuite struct {
 	suite.Suite
-	conn        mongodb.MongoDBConn
+	conn        *mongodb.MongoDBConn
 	api         *UsersCrudAPI
 	g           *gin.Engine
 	createdUser objects.User
@@ -30,19 +31,23 @@ type UsersAPISuite struct {
 
 func (s *UsersAPISuite) SetupSuite() {
 
-	conn := mongodb.New("mongodb://localhost:27017", "go-crud_test")
-	s.Require().NoError(conn.Connect(), "Create MongoDB connection failed")
+	config, err := env.GetEnv()
+	s.Require().NoError(err)
 
-	s.conn = conn
-	api, err := NewUsersAPI(&conn)
+	conn, err := mongodb.New(config.MongoDB)
+	s.Require().NoError(err, "Create MongoDB connection failed")
+	s.Require().NoError(conn.Connect(), "Connecting to MongoDB failed")
+
+	api, err := NewUsersAPI(conn)
 	if err != nil {
-		s.conn.Disconnect()
+		conn.Disconnect()
 		s.FailNow("Create user API failed", err)
 	}
 
 	g := gin.Default()
 	apis.RegisterCrudAPI[objects.User](api, g.Group("api/users"))
 
+	s.conn = conn
 	s.g = g
 	s.api = api
 }

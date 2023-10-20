@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/supakorn-kn/go-crud/apis"
 	booksAPI "github.com/supakorn-kn/go-crud/apis/books"
 	usersAPI "github.com/supakorn-kn/go-crud/apis/users"
+	"github.com/supakorn-kn/go-crud/env"
 	"github.com/supakorn-kn/go-crud/mongodb"
 	"github.com/supakorn-kn/go-crud/objects"
 )
@@ -17,24 +19,33 @@ func main() {
 	//slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 
-	//TODO: Will set parameter from env
-	conn := mongodb.New("mongodb://localhost:27017", "go-crud_data")
+	envConfig, err := env.GetEnv()
+	if err != nil {
+		slog.Error("getting env failed", err)
+		return
+	}
+
+	conn, err := mongodb.New(envConfig.MongoDB)
+	if err != nil {
+		slog.Error("create MongoDB connection failed", err)
+		return
+	}
 	if err := conn.Connect(); err != nil {
-		slog.Error("Create MongoDB connection failed", err)
+		slog.Error("connecting to MongoDB failed", err)
 		return
 	}
 
 	defer conn.Disconnect()
 
-	newbooksAPI, err := booksAPI.NewBooksAPI(&conn)
+	newbooksAPI, err := booksAPI.NewBooksAPI(conn)
 	if err != nil {
-		slog.Error("Create books model failed", err)
+		slog.Error("create books model failed", err)
 		return
 	}
 
-	newUsersAPI, err := usersAPI.NewUsersAPI(&conn)
+	newUsersAPI, err := usersAPI.NewUsersAPI(conn)
 	if err != nil {
-		slog.Error("Create books model failed", err)
+		slog.Error("create books model failed", err)
 		return
 	}
 
@@ -42,8 +53,7 @@ func main() {
 	apis.RegisterCrudAPI[objects.Book](newbooksAPI, g.Group("api/books"))
 	apis.RegisterCrudAPI[objects.User](newUsersAPI, g.Group("api/users"))
 
-	//TODO: Will set addr parameter from env
-	if err := g.Run(); err != nil {
+	if err := g.Run(fmt.Sprintf(":%d", envConfig.Server.Port)); err != nil {
 		slog.Error("run server failed", err)
 		return
 	}
