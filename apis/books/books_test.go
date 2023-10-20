@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/suite"
 	"github.com/supakorn-kn/go-crud/apis"
+	"github.com/supakorn-kn/go-crud/env"
 	"github.com/supakorn-kn/go-crud/errors"
 	"github.com/supakorn-kn/go-crud/models"
 	"github.com/supakorn-kn/go-crud/models/books"
@@ -21,7 +22,7 @@ import (
 
 type BooksAPISuite struct {
 	suite.Suite
-	conn        mongodb.MongoDBConn
+	conn        *mongodb.MongoDBConn
 	api         *BooksCrudAPI
 	g           *gin.Engine
 	createdBook objects.Book
@@ -29,19 +30,23 @@ type BooksAPISuite struct {
 
 func (s *BooksAPISuite) SetupSuite() {
 
-	conn := mongodb.New("mongodb://localhost:27017", "go-crud_test")
-	s.Require().NoError(conn.Connect(), "Create MongoDB connection failed")
+	config, err := env.GetEnv()
+	s.Require().NoError(err)
 
-	s.conn = conn
-	api, err := NewBooksAPI(&conn)
+	conn, err := mongodb.New(config.MongoDB)
+	s.Require().NoError(err, "Create MongoDB connection failed")
+	s.Require().NoError(conn.Connect(), "Connecting to MongoDB failed")
+
+	api, err := NewBooksAPI(conn)
 	if err != nil {
-		s.conn.Disconnect()
+		conn.Disconnect()
 		s.FailNow("Create books API failed", err)
 	}
 
 	g := gin.Default()
 	apis.RegisterCrudAPI[objects.Book](api, g.Group("api/books"))
 
+	s.conn = conn
 	s.g = g
 	s.api = api
 }

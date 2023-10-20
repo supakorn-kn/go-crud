@@ -7,6 +7,7 @@ import (
 
 	"github.com/brianvoe/gofakeit/v6"
 	"github.com/stretchr/testify/suite"
+	"github.com/supakorn-kn/go-crud/env"
 	"github.com/supakorn-kn/go-crud/errors"
 	"github.com/supakorn-kn/go-crud/models"
 	"github.com/supakorn-kn/go-crud/mongodb"
@@ -23,18 +24,21 @@ type BooksModelTestSuite struct {
 
 func (s *BooksModelTestSuite) SetupSuite() {
 
-	//TODO: Will set parameter from env
-	conn := mongodb.New("mongodb://localhost:27017", "go-crud_test")
-	s.Require().NoError(conn.Connect(), "Create Mongodb connection failed")
+	config, err := env.GetEnv()
+	s.Require().NoError(err)
 
-	booksModel, err := NewBooksModel(&conn)
+	conn, err := mongodb.New(config.MongoDB)
+	s.Require().NoError(err, "Create MongoDB connection failed")
+	s.Require().NoError(conn.Connect(), "Connecting to MongoDB failed")
+
+	booksModel, err := NewBooksModel(conn)
 	if err != nil {
 		defer conn.Disconnect()
 		s.FailNow("Setup Book model failed", err)
 	}
 
 	s.model = booksModel
-	s.conn = &conn
+	s.conn = conn
 }
 
 func (s *BooksModelTestSuite) BeforeTest(suiteName, testName string) {
