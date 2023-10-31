@@ -1,0 +1,6 @@
+FROM golang:1.21
+
+COPY . /home/go
+WORKDIR /home/go/
+
+EXPOSE 8080
