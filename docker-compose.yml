@@ -1,0 +1,61 @@
+version: "3"
+
+services:
+  crud_db:
+    container_name: crud_db
+    image: mongo:latest
+    restart: always
+    # Default port. This can be removed
+    ports:
+      - 27017:27017
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: passwd
+    volumes:
+      - mongodb:/data/db
+    networks:
+      - crud-network
+
+  mongo-express:
+    image: mongo-express
+    restart: always
+    ports:
+      - 8081:8081
+    environment:
+      ME_CONFIG_MONGODB_SERVER: "crud_db"
+      ME_CONFIG_MONGODB_ENABLE_ADMIN: true
+      ME_CONFIG_MONGODB_ADMINUSERNAME: "root"
+      ME_CONFIG_MONGODB_ADMINPASSWORD: "passwd"
+    networks:
+      - crud-network
+
+  crud-server:
+    container_name: crud-server
+    build:
+      context: .
+      dockerfile: Dockerfile-Compose
+    stdin_open: true
+    ports:
+      - 8080:8080
+    restart: always
+    volumes:
+      - crud_server:/usr/src/app/
+    depends_on:
+      - crud_db
+    networks:
+      - crud-network
+    environment:
+      MONGODB_HOST: "crud_db"
+      MONGODB_PORT: 27017
+      MONGODB_NAME: "go-crud_data"
+      MONGODB_USER: "root"
+      MONGODB_PASSWORD: "passwd"
+      SERVER_PORT: 8080
+
+volumes:
+  mongodb:
+  crud_server:
+
+networks:
+  crud-network:
+    driver: bridge
