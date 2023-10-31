@@ -10,11 +10,6 @@ import (
 
 func RegisterCrudAPI[Item models.Item](api CrudAPI[Item], group *gin.RouterGroup) {
 
-	group.Use(func(ctx *gin.Context) {
-
-		ctx.Next()
-	})
-
 	group.POST("", func(ctx *gin.Context) {
 
 		err := api.Insert(ctx)
